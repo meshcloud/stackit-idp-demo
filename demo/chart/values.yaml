@@ -1,0 +1,9 @@
+image:
+  repository: registry.example.eu/org/hello-world   # wird von Tiny CI überschrieben
+  tag: bootstrap                                     # wird von Tiny CI überschrieben
+
+service:
+  port: 80
+
+container:
+  port: 8080
