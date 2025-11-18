@@ -1,21 +1,33 @@
 variable "harbor_url" {
+  description = "Harbor base URL, e.g. https://registry.onstackit.cloud"
   type        = string
-  description = "e.g. https://registry.onstackit.cloud"
 }
 
-variable "username" {
+variable "harbor_username" {
+  description = "Harbor user with permission to create projects (currently unused, kept for future automation)"
   type        = string
-  description = "Harbor user with permission to create projects"
   sensitive   = true
 }
 
-variable "password" {
+variable "harbor_password" {
+  description = "Harbor password/CLI secret (currently unused, kept for future automation)"
   type        = string
-  description = "Password or token for the user"
   sensitive   = true
 }
 
 variable "project" {
+  description = "Harbor project name that was created manually"
   type        = string
-  description = "Harbor project name, e.g. hello-world"
+}
+
+variable "robot_username" {
+  description = "Robot account username (created manually in Harbor UI)"
+  type        = string
+  sensitive   = true
+}
+
+variable "robot_token" {
+  description = "Robot account secret token (created manually in Harbor UI)"
+  type        = string
+  sensitive   = true
 }

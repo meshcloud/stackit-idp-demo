@@ -23,24 +23,31 @@ variable "kubeconfig_path" {
   default     = "../kubeconfig"
 }
 
-variable "app_name" {
-  type    = string
-  default = "hello-world"
-}
-
 variable "stackit_sa_key_path" {
   description = "Path to the STACKIT service-account key JSON"
   type        = string
 }
 
-# bootstrap/variables.tf
 variable "harbor_username" {
-  type      = string
-  sensitive = true
+  description = "Harbor admin username (your STACKIT email for OIDC login, kept for future automation)"
+  type        = string
+  sensitive   = true
 }
 
-variable "harbor_password" {
-  type      = string
-  sensitive = true
+variable "harbor_cli_secret" {
+  description = "Harbor CLI Secret (get from STACKIT Portal → Harbor Profile → CLI Secret)"
+  type        = string
+  sensitive   = true
 }
 
+variable "harbor_robot_username" {
+  description = "Harbor robot account username (created manually in Harbor UI)"
+  type        = string
+  sensitive   = true
+}
+
+variable "harbor_robot_token" {
+  description = "Harbor robot account secret token (created manually in Harbor UI)"
+  type        = string
+  sensitive   = true
+}

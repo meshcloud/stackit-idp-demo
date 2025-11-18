@@ -1,12 +1,15 @@
 output "registry_url" {
-  value = "registry.stackit.cloud/${harbor_project.p.name}"
+  description = "Base registry URL for pushing to this Harbor project"
+  value       = "${replace(var.harbor_url, "https://", "")}/${var.project}"
 }
 
 output "robot_username" {
-  value = harbor_robot_account.ci.name
+  description = "Robot account username (e.g. robot$project+ci)"
+  value       = var.robot_username
 }
 
 output "robot_token" {
-  value     = harbor_robot_account.ci.secret
-  sensitive = true
+  description = "Robot account secret token"
+  value       = var.robot_token
+  sensitive   = true
 }

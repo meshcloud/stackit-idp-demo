@@ -36,3 +36,15 @@ variable "registry_password" {
   default   = ""
   sensitive = true
 }
+
+variable "harbor_url"      { type = string }
+variable "harbor_username" { 
+  type = string 
+  sensitive = true 
+}
+variable "harbor_password" { 
+  type = string
+  sensitive = true 
+}
+
+variable "app_name"        { type = string }
