@@ -1,27 +1,140 @@
-.PHONY: bootstrap app-env app-env-vars destroy-app-env destroy-bootstrap
+.PHONY: provision configure app-env down validate help
 
-# 🛠️ Makefile: Vereinfacht das Ausführen der Terraform-Stacks.
-# - `make bootstrap`    → Provisioniert Basisinfrastruktur (Cluster, Registry)
-# - `make app-env`      → Führt App-Umgebung über TF_VAR-Wrapper aus
-# - `make app-env-vars` → Alternativ: Übergabe via .auto.tfvars.json-Datei
-# - `make destroy-*`    → Entfernt jeweilige Stacks
+# ============================================================================
+# Makefile: Provision & Configuration Orchestration
+# ============================================================================
+# Implements the Provision/Configuration pattern from ADR-002
+#
+# Three independent Terraform layers orchestrated in sequence:
+# 1. Provision (bootstrap/platform/provision)     - Infrastructure
+# 2. Configure (bootstrap/platform/configure)     - Platform initialization
+# 3. App-Env   (app-env)                          - Application environments
+#
+# Each layer is completely independent and communicates only through
+# explicit input/output variables injected via terraform.tfvars files.
+# ============================================================================
 
-bootstrap:
-	cd terraform/bootstrap && terraform init && terraform apply -auto-approve
+help:
+	@echo "STACKIT IDP Demo - Provision & Configuration Pattern"
+	@echo ""
+	@echo "Targets:"
+	@echo "  make provision    - Deploy infrastructure (SKE cluster, Harbor)"
+	@echo "  make configure    - Initialize platform (ServiceAccount, RBAC)"
+	@echo "  make app-env      - Deploy application environment"
+	@echo "  make validate     - Validate all layers"
+	@echo "  make down         - Destroy all layers (reverse order)"
+	@echo ""
+	@echo "Workflow:"
+	@echo "  make provision → make configure → make app-env"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  docs/adr/ADR-002_bootstrap-platform-components.md"
+	@echo "  terraform/README.md"
 
-# Option A: via TF_VAR_…
-app-env:
-	./scripts/app-env-apply.sh
+provision:
+	@echo "🚀 Phase A: Provisioning infrastructure..."
+	@echo ""
+	cd terraform/bootstrap/platform/provision && \
+		terraform init -upgrade=false && \
+		terraform validate && \
+		terraform apply -auto-approve
+	@echo ""
+	@echo "✅ Provision layer deployed"
 
-# Option B: via .auto.tfvars.json
-app-env-vars:
-	./scripts/mk-app-env-vars.sh
-	cd terraform/app-env && terraform init && terraform apply -auto-approve
+configure: _check-provision _inject-provision-to-configure
+	@echo "🚀 Phase B: Configuring platform..."
+	@echo ""
+	cd terraform/bootstrap/platform/configure && \
+		terraform init -upgrade=false && \
+		terraform validate && \
+		terraform apply -auto-approve
+	@echo ""
+	@echo "✅ Configuration layer deployed"
 
-destroy-app-env:
-	cd terraform/app-env && terraform destroy -auto-approve
+app-env: _check-configure _inject-configure-to-appenv
+	@echo "🚀 Phase C: Deploying application environment..."
+	@echo ""
+	cd terraform/app-env && \
+		terraform init -upgrade=false && \
+		terraform validate && \
+		terraform apply -auto-approve
+	@echo ""
+	@echo "✅ App-Env layer deployed"
 
-destroy-bootstrap:
-	cd terraform/bootstrap && terraform destroy -auto-approve
+_check-provision:
+	@if [ ! -f terraform/bootstrap/platform/provision/terraform.tfstate ]; then \
+		echo "❌ Provision layer not deployed. Run 'make provision' first."; \
+		exit 1; \
+	fi
+	@echo "✅ Provision state found"
 
-	
+_check-configure:
+	@if [ ! -f terraform/bootstrap/platform/configure/terraform.tfstate ]; then \
+		echo "❌ Configure layer not deployed. Run 'make configure' first."; \
+		exit 1; \
+	fi
+	@echo "✅ Configure state found"
+
+_inject-provision-to-configure:
+	@echo "📝 Injecting Provision outputs into Configure..."
+	python3 scripts/inject-provision-to-configure.py
+
+_inject-configure-to-appenv:
+	@echo "📝 Injecting Configure outputs into App-Env..."
+	python3 scripts/inject-configure-to-appenv.py
+
+validate:
+	@echo "🔍 Validating Provision layer..."
+	cd terraform/bootstrap/platform/provision && \
+		terraform init -upgrade=false && \
+		terraform validate
+	@echo "✅ Bootstrap/Provision valid"
+	@echo ""
+	@echo "🔍 Validating Configure layer..."
+	cd terraform/bootstrap/platform/configure && \
+		terraform init -upgrade=false && \
+		terraform validate
+	@echo "✅ Bootstrap/Configure valid"
+	@echo ""
+	@echo "🔍 Validating App-Env layer..."
+	cd terraform/app-env && \
+		terraform init -upgrade=false && \
+		terraform validate
+	@echo "✅ App-Env valid"
+	@echo ""
+	@echo "✅ All layers valid"
+
+down: _destroy-appenv _destroy-configure _destroy-provision
+	@echo "✅ All layers destroyed"
+
+_destroy-appenv:
+	@if [ -f terraform/app-env/terraform.tfstate ]; then \
+		echo "🗑️  Destroying App-Env layer..."; \
+		cd terraform/app-env && \
+			terraform destroy -auto-approve && \
+			rm -f terraform.auto.tfvars.json; \
+		echo "✅ App-Env destroyed"; \
+	else \
+		echo "ℹ️  App-Env not deployed"; \
+	fi
+
+_destroy-configure:
+	@if [ -f terraform/bootstrap/platform/configure/terraform.tfstate ]; then \
+		echo "🗑️  Destroying Configure layer..."; \
+		cd terraform/bootstrap/platform/configure && \
+			terraform destroy -auto-approve && \
+			rm -f terraform.auto.tfvars.json; \
+		echo "✅ Configure destroyed"; \
+	else \
+		echo "ℹ️  Configure not deployed"; \
+	fi
+
+_destroy-provision:
+	@if [ -f terraform/bootstrap/platform/provision/terraform.tfstate ]; then \
+		echo "🗑️  Destroying Provision layer..."; \
+		cd terraform/bootstrap/platform/provision && \
+			terraform destroy -auto-approve; \
+		echo "✅ Provision destroyed"; \
+	else \
+		echo "ℹ️  Provision not deployed"; \
+	fi

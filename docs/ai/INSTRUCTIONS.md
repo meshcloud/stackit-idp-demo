@@ -119,7 +119,8 @@ Copilot should understand the architecture:
 * registry repositories are created automatically on first push; app-env must not try to create them.
 * Harbor project is single environment-wide → created in bootstrap.
 * app-env uses the **namespace module**, **image pull secret**, **Helm-based app deployment**, and **Argo CD**.
-* No manual fixes or commands are allowed. Everything has to be done in code. As much as possible in terraform. Scripts and Makefile amendments are okay.
+* No manual fixes or commands are allowed. Everything has to be done in code. As much as possible in terraform. Scripts and Makefile amendments are okay. Use the Makefile to codify and document workflows if they would require manual steps by me as the user.
+* When architecture decisions are necessary, first get my decision before implementing any code. Don't start into implementation of a suggestion without my consent.
 
 ### Next steps (where I am right now)
 
@@ -155,9 +156,44 @@ Next tasks for Copilot:
   3. Edit code → Tiny CI → Argo sync → live update
 * Code that is production-like but still demo-friendly
 * Minimal external dependencies (STACKIT only, local tooling only)
+* Use English language for code comments and docs.
+* Keep documentation short and essential while still providing all necessary details, but leaving out the fluff.
 
 ---
 
 ## Example instruction you can add at the end
 
 > “When I ask you to create a Terraform module or update a file, use the directory structure above, use only multi-line HCL blocks, keep bootstrap and app-env separated, and explain inline in comments why each part exists.”
+
+You MUST strictly follow the Provision/Configuration architecture defined in ADR-002.
+
+Terraform Layer Boundaries (non-negotiable):
+1. The Provision layer (bootstrap/platform/provision) 
+   - creates infrastructure resources only
+   - MUST NOT use the Kubernetes provider
+   - exports kube_host, kube_ca_certificate, bootstrap_client_certificate, bootstrap_client_key
+
+2. The Configuration layer (bootstrap/platform/configure)
+   - uses the Kubernetes provider
+   - creates the platform-admin namespace, platform-terraform SA, RBAC, token secret
+   - outputs app_env_kube_host, app_env_kube_ca_certificate, app_env_kube_token
+
+3. The App-Env layer (app-env/main)
+   - configures its own Kubernetes provider with the outputs from Configuration
+   - creates app namespaces, quotas, network policies, etc.
+   - MUST NOT create cluster-wide ServiceAccounts
+
+Repo rules:
+- Never define the Kubernetes provider in the bootstrap root.
+- Never bypass the Provision/Configuration split.
+- All Terraform code and comments MUST be in English.
+- Modules must communicate ONLY via explicit inputs/outputs.
+- Do not use depends_on on module blocks; rely on implicit dependencies through outputs.
+
+Your task when asked:
+- Refactor Terraform code to match this structure.
+- Update the Makefile to orchestrate: provision → configure → app-env.
+- Never introduce provider passthrough in bootstrap.
+- Never collapse Provision and Configuration into one step.
+
+If any requested change violates these rules, refuse and propose the correct solution.

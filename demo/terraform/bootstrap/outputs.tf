@@ -1,17 +1,4 @@
-output "kubeconfig_path" {
-  value = var.kubeconfig_path
-}
-
-output "registry_url" { 
-  value = module.harbor.registry_url 
-}
-
-output "harbor_robot_username" { 
-  value     = module.harbor.robot_username
-  sensitive = true
-}
-
-output "harbor_robot_token" {
-  value     = module.harbor.robot_token
-  sensitive = true
-}
+# ============================================================================
+# NOTE: All outputs are now managed in bootstrap/platform/
+# This directory contains ONLY the platform/ subdirectory structure
+# ============================================================================
