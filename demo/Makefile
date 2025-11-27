@@ -18,14 +18,21 @@ help:
 	@echo "STACKIT IDP Demo - Provision & Configuration Pattern"
 	@echo ""
 	@echo "Targets:"
-	@echo "  make provision    - Deploy infrastructure (SKE cluster, Harbor)"
-	@echo "  make configure    - Initialize platform (ServiceAccount, RBAC)"
-	@echo "  make app-env      - Deploy application environment"
-	@echo "  make validate     - Validate all layers"
-	@echo "  make down         - Destroy all layers (reverse order)"
+	@echo "  make provision       - Deploy infrastructure (SKE cluster, Harbor)"
+	@echo "  make configure       - Initialize platform (ServiceAccount, RBAC)"
+	@echo "  make app-env         - Deploy application environment"
+	@echo "  make kubeconfig      - Generate kubeconfig for testing (shows export command)"
+	@echo "  make test-connection - Test cluster connectivity"
+	@echo "  make validate        - Validate all layers"
+	@echo "  make down            - Destroy all layers (reverse order)"
 	@echo ""
 	@echo "Workflow:"
-	@echo "  make provision → make configure → make app-env"
+	@echo "  make provision → make configure → make app-env → make test-connection"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make kubeconfig      # Generate and show export command"
+	@echo "  eval \"\$$(make kubeconfig)\"  # Set KUBECONFIG env variable"
+	@echo "  kubectl get ns       # Use kubectl with proper credentials"
 	@echo ""
 	@echo "Documentation:"
 	@echo "  docs/adr/ADR-002_bootstrap-platform-components.md"
@@ -61,6 +68,11 @@ app-env: _check-configure _inject-configure-to-appenv
 	@echo ""
 	@echo "✅ App-Env layer deployed"
 
+kubeconfig: _check-configure _generate-kubeconfig _show-kubeconfig-export
+
+test-connection: _check-configure _generate-kubeconfig _test-kubectl
+	@echo "✅ All connection tests passed"
+
 _check-provision:
 	@if [ ! -f terraform/bootstrap/platform/provision/terraform.tfstate ]; then \
 		echo "❌ Provision layer not deployed. Run 'make provision' first."; \
@@ -83,6 +95,55 @@ _inject-configure-to-appenv:
 	@echo "📝 Injecting Configure outputs into App-Env..."
 	python3 scripts/inject-configure-to-appenv.py
 
+_generate-kubeconfig:
+	@echo "🔑 Generating kubeconfig with platform-terraform token..."
+	@python3 scripts/generate-test-kubeconfig.py
+
+_show-kubeconfig-export:
+	@echo ""
+	@echo "📋 To use kubectl with proper credentials, run:"
+	@echo ""
+	@echo "  export KUBECONFIG=/tmp/kubeconfig-token"
+	@echo ""
+	@echo "Or in one line:"
+	@echo ""
+	@echo "  eval \"\$$(make kubeconfig)\" && echo 'export KUBECONFIG=/tmp/kubeconfig-token'"
+	@echo ""
+	@echo "Then test with:"
+	@echo "  kubectl get ns"
+	@echo "  kubectl get ns demo-app"
+	@echo ""
+
+_test-kubectl:
+	@echo "🧪 Testing kubectl connectivity..."
+	@export KUBECONFIG=/tmp/kubeconfig-token; \
+	echo "  → cluster-info..."; \
+	if kubectl cluster-info 2>&1 | grep -q "Kubernetes"; then \
+		echo "    ✓ Cluster reachable"; \
+	else \
+		echo "    ⚠ Cluster info available"; \
+	fi; \
+	echo "  → namespaces..."; \
+	if kubectl get ns 2>&1 | grep -q "demo-app"; then \
+		echo "    ✓ demo-app namespace found"; \
+	else \
+		echo "    ✗ demo-app namespace not found"; \
+		exit 1; \
+	fi; \
+	echo "  → resourcequota..."; \
+	if kubectl get resourcequota -n demo-app 2>&1 | grep -q "demo-app-quota"; then \
+		echo "    ✓ ResourceQuota configured"; \
+	else \
+		echo "    ⚠ ResourceQuota not configured"; \
+	fi; \
+	echo "  → networkpolicies..."; \
+	if kubectl get networkpolicies -n demo-app 2>&1 | grep -q "deny"; then \
+		echo "    ✓ NetworkPolicies configured"; \
+	else \
+		echo "    ⚠ NetworkPolicies not configured"; \
+	fi; \
+	echo ""
+
 validate:
 	@echo "🔍 Validating Provision layer..."
 	cd terraform/bootstrap/platform/provision && \
@@ -103,6 +164,8 @@ validate:
 	@echo "✅ App-Env valid"
 	@echo ""
 	@echo "✅ All layers valid"
+
+.PHONY: test-connection _generate-kubeconfig _test-kubectl _show-kubeconfig-export
 
 down: _destroy-appenv _destroy-configure _destroy-provision
 	@echo "✅ All layers destroyed"

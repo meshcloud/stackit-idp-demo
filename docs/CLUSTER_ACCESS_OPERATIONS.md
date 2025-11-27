@@ -230,4 +230,3 @@ module "app-env" {
 - [ ] OIDC-federierte ServiceAccounts (falls STACKIT unterstützt)
 - [ ] Multi-Tenant RBAC (pro-App ServiceAccounts statt Cluster-Admin)
 - [ ] Remote Backend Support für terraform_remote_state (S3, Terraform Cloud, etc.)
-
