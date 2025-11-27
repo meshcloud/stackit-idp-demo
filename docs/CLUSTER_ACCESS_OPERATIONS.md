@@ -8,225 +8,335 @@ This document explains how long-term cluster access works in the IDP demo.
 - **Production readiness:** A platform that becomes undeployable after 8h is not production-ready
 - **Automation:** Terraform must reliably manage K8s resources over weeks/months
 
-## Solution: ServiceAccount-Based Access
+## Solution: Three-Layer Architecture with ServiceAccount-Based Access
 
-See **ADR-003** (Cluster Access Strategy) for technical details and **ADR-004** (Layer Integration Pattern) for Terraform layer decoupling.
+See **ADR-002** (Bootstrap Platform Components) for architecture details.
 
 ---
 
-## Workflow: Lokale Entwicklung
+## Workflow: Development & Testing
 
-### Phase 1: Validate (optional)
+### Phase 1: Validate All Layers (optional)
 
 ```bash
 make validate
 ```
 
-Stellt sicher, dass beide Layer syntaktisch korrekt sind.
+Ensures all three layers are syntactically correct.
 
-### Phase 2: Deploy Bootstrap
+### Phase 2: Deploy Provision Layer
 
 ```bash
-make bootstrap
+make provision
 ```
 
-**Was passiert:**
-1. SKE-Cluster wird erstellt (~10 min)
-2. Harbor Registry wird konfiguriert
-3. Terraform exportiert:
-   - `cluster_endpoint`: K8s API URL
-   - `cluster_ca_certificate`: CA-Zertifikat
-   - `registry_url`: Harbor Registry URL
-   - Weitere Outputs
+**What happens:**
+1. SKE cluster is created (~9-10 min)
+2. Harbor Registry is configured (~1-2 min)
+3. Terraform exports:
+   - `kube_host`: K8s API URL
+   - `cluster_ca_certificate`: CA certificate
+   - `bootstrap_client_certificate`: Client cert (expires ~8h)
+   - `bootstrap_client_key`: Client key
 
-### Phase 3: Deploy App-Env
+### Phase 3: Deploy Configure Layer
+
+```bash
+make configure
+```
+
+**What the Makefile does:**
+1. ✅ Checks that Provision is deployed
+2. ✅ Reads Provision's `terraform.tfstate` and extracts outputs
+3. ✅ Writes outputs to `bootstrap/platform/configure/terraform.auto.tfvars.json`
+4. ✅ Deploys Configure layer with credential injection
+
+**What Configure deploys:**
+1. Kubernetes provider (certificate-based auth from Provision)
+2. `platform-admin` namespace
+3. `platform-terraform` ServiceAccount + ClusterRole (8 permission rules)
+4. Kubernetes Secret containing long-lived token
+5. Data source extracts token from secret
+6. Exports: `app_env_kube_host`, `app_env_kube_ca_certificate`, `app_env_kube_token`
+
+### Phase 4: Deploy App-Env Layer
 
 ```bash
 make app-env
 ```
 
-**Was das Makefile macht:**
-1. ✅ Checkt dass Bootstrap deployed ist
-2. ✅ Liest Bootstrap's `terraform.tfstate` und extrahiert Outputs
-3. ✅ Schreibt Outputs in `app-env/terraform.tfvars.auto.json`
-4. ✅ Deployed App-Env mit diesen Inputs
+**What the Makefile does:**
+1. ✅ Checks that Configure is deployed
+2. ✅ Reads Configure's `terraform.tfstate` and extracts outputs
+3. ✅ Writes outputs to `app-env/terraform.auto.tfvars.json`
+4. ✅ Deploys App-Env with token-based authentication
 
-**Was App-Env deployt:**
-1. RBAC: `terraform-admin` ServiceAccount + ClusterRole
-2. Kubernetes Secret für den Token
-3. Namespace `demo-app`
-4. ImagePullSecret für Harbor Registry
+**What App-Env deploys:**
+1. Kubernetes provider (token-based auth from Configure)
+2. `demo-app` namespace
+3. ResourceQuota (4 CPU, 8Gi memory requests)
+4. LimitRange (100m-2 CPU per container)
+5. NetworkPolicies (deny-all ingress/egress)
 
-### Phase 4: Zukünftige Deployments
+**Important:**
+- ✅ Each layer is completely independent
+- ✅ Credentials flow through explicit state injection (Python scripts)
+- ✅ No tight coupling, no terraform_remote_state
+- ✅ Provision layer expires but Configure token is persistent
+
+### Phase 5: Test Cluster Connectivity
 
 ```bash
-cd demo/terraform/app-env
+# Automated tests
+make test-connection
 
-# Token aus Cluster Secret auslesen (oder Secrets Manager)
-TOKEN=$(kubectl get secret terraform-admin-token -n kube-system \
-  -o jsonpath='{.data.token}' | base64 -d)
-
-# Deploy
-terraform apply -var="cluster_admin_token=$TOKEN"
+# Or manual testing
+make kubeconfig
+export KUBECONFIG=/tmp/kubeconfig-token
+kubectl get ns demo-app
 ```
-
-**Wichtig:** 
-- ✅ Bootstrap läuft weiterhin im Hintergrund (State File ist Source of Truth)
-- ✅ App-Env wird via `terraform_remote_state` automatisch mit Bootstrap verbunden
-- ✅ Keine Skripte, keine tfvars-Manipulation, keine enge Kopplung
 
 ---
 
-## Technische Details
+## Testing with kubectl
 
-### Integration: terraform_remote_state
+### Generate Long-Lived kubeconfig
 
-```hcl
-# app-env/main.tf
-data "terraform_remote_state" "bootstrap" {
-  backend = "local"
-  config = {
-    path = var.bootstrap_state_path  # "../bootstrap/terraform.tfstate"
-  }
-}
+The `make kubeconfig` target generates a kubeconfig using the persistent platform-terraform token:
 
-# Automatisch: cluster_endpoint vom bootstrap lesen
-host = data.terraform_remote_state.bootstrap.outputs.cluster_endpoint
+```bash
+make kubeconfig
 ```
 
-**Wie es funktioniert:**
-- App-Env definiert `bootstrap_state_path = "../bootstrap/terraform.tfstate"` (Variable mit Default)
-- Wenn app-env deployed wird, liest Terraform automatisch Bootstrap's State
-- Keine Abhängigkeit auf Skripte oder tfvars-Schreiben
-- Hybrid-Fallback: Falls `cluster_endpoint` direkt übergeben, nutze das statt Remote State
+This shows:
 
-### Credential Lifecycle
+```
+📋 To use kubectl with proper credentials, run:
 
-| Komponente | Lebensdauer | Verwaltung | Nutzung |
+  export KUBECONFIG=/tmp/kubeconfig-token
+
+Or in one line:
+
+  eval "$(make kubeconfig)" && echo 'export KUBECONFIG=/tmp/kubeconfig-token'
+
+Then test with:
+  kubectl get ns
+  kubectl get ns demo-app
+```
+
+### Manual Token Extraction
+
+If you need to extract the token directly:
+
+```bash
+# Extract from Configure layer state
+terraform -chdir=terraform/bootstrap/platform/configure output -raw app_env_kube_token
+
+# Store for future deployments (securely!)
+TOKEN=$(terraform -chdir=terraform/bootstrap/platform/configure output -raw app_env_kube_token)
+
+# Use with kubectl
+export KUBECONFIG=/tmp/my-kubeconfig
+kubectl config set-cluster stackit-cluster --server=https://...
+kubectl config set clusters.stackit-cluster.certificate-authority-data "$(base64 < ca.crt)"
+kubectl config set-credentials platform-terraform --token="$TOKEN"
+kubectl config set-context stackit-cluster --cluster=stackit-cluster --user=platform-terraform
+kubectl config use-context stackit-cluster
+```
+
+---
+
+## Credential Lifecycle
+
+| Component | Lifespan | Management | Usage |
 |---|---|---|---|
-| SKE kubeconfig (Client-Cert) | ~8h | Von SKE Provider generiert | Admin kubectl (nur lokal) |
-| terraform-admin Token | Unbegrenzt | In K8s Secret gespeichert | Terraform Automation |
-| Bootstrap State | Unbegrenzt | In Filesystem/Backend | terraform_remote_state |
+| Provision kubeconfig (Client-Cert) | ~8h | Generated by SKE provider | Certificate-based auth for Configure layer |
+| Configure layer state | Indefinite | Filesystem | Source of truth for credentials |
+| platform-terraform token | Indefinite | K8s Secret (in platform-admin namespace) | Token-based auth for App-Env layer |
+| App-Env state | Indefinite | Filesystem | Proof of deployment |
 
-**Fluss:**
+**Flow:**
 
 ```
-Bootstrap:
-  kubeconfig (8h) --> [Initial RBAC Setup] --> create terraform-admin Token
+Provision Layer:
+  SKE kubeconfig (8h) 
+    ↓
+  [inject-provision-to-configure.py]
+    ↓
+  Configure/terraform.auto.tfvars.json
+    ↓
 
-App-Env:
-  terraform-admin Token (persistent) --> [stored in Secret] --> [used every deployment]
+Configure Layer:
+  Certificate-based auth → Create platform-terraform ServiceAccount + Secret
+  Long-lived token in Secret
+    ↓
+  [inject-configure-to-appenv.py]
+    ↓
+  App-Env/terraform.auto.tfvars.json
+    ↓
+
+App-Env Layer:
+  Token-based auth → Deploy namespace + policies
+  Persistent credentials stored in state file
 ```
 
 ---
 
-## Admin-Zugang (kubectl)
+## Admin Access (kubectl)
 
-Falls ein Admin manuell in den Cluster muss:
+For manual admin access to the cluster:
+
+### Option A: Using the long-lived token (recommended)
 
 ```bash
-# Fresh kubeconfig aus STACKIT holen
-cd demo/terraform/bootstrap
-terraform refresh  # Aktualisiert kubeconfig
-
-# Jetzt kann admin manuell kubectl-Befehle ausführen
-KUBECONFIG=../kubeconfig kubectl get nodes
+make kubeconfig
+export KUBECONFIG=/tmp/kubeconfig-token
+kubectl get nodes
 ```
+
+### Option B: Using fresh credentials from Provision layer
+
+```bash
+# Refresh Provision outputs (gets fresh SKE kubeconfig)
+cd demo/terraform/bootstrap/platform/provision
+terraform refresh
+
+# Extract fresh credentials
+cd ../../../
+export KUBECONFIG=demo/terraform/bootstrap/platform/provision/kubeconfig
+kubectl get nodes
+```
+
+**Note:** This kubeconfig will expire after ~8h. Use Option A for longer sessions.
 
 ---
 
 ## Troubleshooting
 
-### "Unauthorized" beim terraform apply
+### "Unauthorized" when running make configure
 
-**Ursache:** Token ist abgelaufen oder ungültig
+**Cause:** Provision credentials not injected properly
 
-**Lösung:**
+**Solution:**
 
 ```bash
-# 1. Prüfe ob Token noch in Secret existiert
-kubectl get secret terraform-admin-token -n kube-system -o jsonpath='{.data.token}'
+# 1. Check if terraform.auto.tfvars.json was created
+cat terraform/bootstrap/platform/configure/terraform.auto.tfvars.json
 
-# 2. Falls Secret fehlt: Starte app-env wieder mit frischer kubeconfig
-cd demo/terraform/app-env
-terraform destroy  # Nur RBAC-Ressourcen
-terraform apply   # Erstellt neue Token
+# 2. Re-run injection
+python3 scripts/inject-provision-to-configure.py
 
-# 3. Exportiere neuen Token
-terraform output -raw service_account_token
+# 3. Check Provision state exists and is valid
+terraform -chdir=terraform/bootstrap/platform/provision state list
 
-# 4. Nutze neuen Token für zukünftige Runs
-terraform apply -var="cluster_admin_token=$TOKEN"
+# 4. Retry configure
+make configure
 ```
 
-### kubeconfig läuft ab
+### "Unauthorized" when running make app-env
 
-**Für Admin-Zugang:**
+**Cause:** Configure credentials not injected properly
+
+**Solution:**
+
 ```bash
-cd demo/terraform/bootstrap
-terraform refresh
+# 1. Check if terraform.auto.tfvars.json was created
+cat terraform/app-env/terraform.auto.tfvars.json
+
+# 2. Re-run injection
+python3 scripts/inject-configure-to-appenv.py
+
+# 3. Check Configure state exists and contains outputs
+terraform -chdir=terraform/bootstrap/platform/configure output
+
+# 4. Retry app-env
+make app-env
 ```
 
-**Für Automation:** Kein Problem, solange ServiceAccount-Token gültig ist. Die neue `terraform_remote_state`-Integration kümmert sich automatisch darum.
+### kubectl commands fail with permission errors
 
-### terraform_remote_state kann State nicht lesen
+**Cause:** platform-terraform SA has limited permissions by design
 
-**Ursache:** Bootstrap wurde noch nicht deployed, oder State-Path ist falsch
+**Note:** This is expected! platform-terraform can only:
+- Read/list namespaces
+- Read/list ResourceQuotas, LimitRanges, NetworkPolicies
+- Read/list RBAC resources
+- NOT create pods, deployments, or modify workloads
 
-**Lösung:**
+This is correct isolation for the automation layer.
+
+### make kubeconfig fails
+
+**Cause:** Configure layer not deployed
+
+**Solution:**
+
 ```bash
-# 1. Stelle sicher dass Bootstrap deployed ist
-cd demo/terraform/bootstrap && terraform apply
+# Deploy Configure first
+make provision
+make configure
 
-# 2. Überprüfe State-Path
-cd demo/terraform/app-env && terraform console
-> data.terraform_remote_state.bootstrap.outputs.cluster_endpoint
-# Sollte die API-URL zeigen
-
-# 3. Falls immer noch Problem: übergebe Werte direkt
-terraform apply -var="cluster_endpoint=https://..." \
-                -var="cluster_ca_certificate=..." \
-                -var="cluster_admin_token=$TOKEN"
+# Then generate kubeconfig
+make kubeconfig
 ```
+
+### Token appears in logs/terminal
+
+**Security note:** Tokens may appear in:
+- Terraform logs (especially in -verbose mode)
+- kubectl output when describing secrets
+- Your shell history
+
+**Best practices:**
+1. Don't commit terraform.auto.tfvars.json to Git
+2. Rotate tokens periodically
+3. Use Secrets Manager for production
+4. Clear shell history: `history -c`
+5. Set `HISTFILE=/dev/null` for sensitive sessions
 
 ---
 
 ## Best Practices
 
-1. **Nie kubeconfig in Git committen** → wird ungültig + unsicher
-2. **ServiceAccount-Token sicher speichern** → Vault, Secrets Manager, Encrypted Git
-3. **Regelmäßig testen** → `terraform plan` mindestens weekly
-4. **Monitoring** → Logs wenn ServiceAccount-Token rotation erforderlich
-5. **Keine Skripte für tfvars-Manipulation** → nutze `terraform_remote_state` oder direkte Variablen
-6. **terraform.tfstate Backup** → State ist Quelle aller Wahrheit
+1. **Never commit kubeconfig or terraform.auto.tfvars.json to Git**
+   - These contain live credentials
+   - They expire or become invalid
+   - Add to .gitignore
+
+2. **Store long-lived tokens securely**
+   - Vault, AWS Secrets Manager, or similar
+   - Encrypted git if necessary (e.g., git-crypt)
+   - Never in plain text
+
+3. **Test regularly**
+   - Run `make test-connection` weekly
+   - Monitor token expiration
+   - Plan token rotation strategy
+
+4. **Layer independence**
+   - Each layer can be re-deployed independently
+   - Provision layer expiration doesn't affect App-Env
+   - Credentials flow through explicit injection only
+
+5. **Audit and monitoring**
+   - Log all terraform applies
+   - Monitor ServiceAccount token usage
+   - Alert on authentication failures
+
+6. **Token rotation strategy**
+   - Current: Manual via Configure layer re-deploy
+   - Future: Kubernetes CronJob for automatic rotation
+   - Consider: Secrets Manager integration
 
 ---
 
-## Building Blocks / meshStack Migration
+## Future Improvements
 
-Die aktuelle Architektur ist **zukunftssicher für meshStack**:
-
-```hcl
-# In meshStack: Direct Module Wiring statt terraform_remote_state
-module "app-env" {
-  source = "git::https://...app-env"
-  
-  cluster_endpoint        = module.bootstrap.cluster_endpoint
-  cluster_ca_certificate  = module.bootstrap.cluster_ca_certificate
-  cluster_admin_token     = var.bootstrap_admin_token
-  
-  depends_on = [module.bootstrap]
-}
-```
-
-**Code ändert sich nicht!** Nur Integration-Mechanik wechselt von `terraform_remote_state` zu direktem Modul-Output.
-
----
-
-## Zukünftige Verbesserungen
-
-- [ ] Token-Rotation automatisieren (Kubernetes CronJob)
-- [ ] Secrets Manager Integration (Vault, AWS Secrets)
-- [ ] OIDC-federierte ServiceAccounts (falls STACKIT unterstützt)
-- [ ] Multi-Tenant RBAC (pro-App ServiceAccounts statt Cluster-Admin)
-- [ ] Remote Backend Support für terraform_remote_state (S3, Terraform Cloud, etc.)
+- [ ] Automatic token rotation (Kubernetes CronJob)
+- [ ] Secrets Manager integration (Vault, AWS Secrets)
+- [ ] OIDC-federated ServiceAccounts (if STACKIT supports)
+- [ ] Per-application ServiceAccounts (instead of shared platform-terraform)
+- [ ] Remote Backend support (S3, Terraform Cloud)
+- [ ] Automated kubeconfig refresh in CI/CD
+- [ ] Token expiration monitoring and alerts
+- [ ] Multi-cluster support with credential scoping

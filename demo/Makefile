@@ -111,7 +111,7 @@ _show-kubeconfig-export:
 	@echo ""
 	@echo "Then test with:"
 	@echo "  kubectl get ns"
-	@echo "  kubectl get ns demo-app"
+	@echo "  kubectl get ns your-app"
 	@echo ""
 
 _test-kubectl:
