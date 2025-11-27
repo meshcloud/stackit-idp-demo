@@ -1,7 +1,7 @@
 # ADR-002 — Bootstrap Platform Provision & Configuration Scope
 
-**Status:** Accepted  
-**Date:** 2025-11-18 (updated 2025-11-19)
+**Status:** Finalized  
+**Date:** 2025-11-18 (finalized 2025-11-27)
 
 ## Decision
 
@@ -11,6 +11,8 @@ The bootstrap of the *Sovereign Developer Platform* is split into two clearly se
 - **Platform Configuration Layer** – initializes and configures these resources from inside.
 
 All app environments (app-env) build on top of the configured platform.
+
+Credentials and state flow through explicit state injection (Python scripts and Makefile orchestration), enabling deterministic Terraform execution and long-lived automation identities.
 
 ---
 
@@ -134,18 +136,126 @@ For Kubernetes, app-env:
 
 **Cons**
 
-- Requires two Terraform runs for the platform (Provision → Configuration).  
-- Slightly higher conceptual overhead for new contributors, who must understand the two layers.  
+- Requires two Terraform runs for the bootstrap platform (Provision → Configuration).  
+- Slightly higher conceptual overhead for new contributors, who must understand the two layers and state injection pattern.  
+- State injection scripts must be maintained alongside Terraform code.
+
+---
+
+## E. State Injection Pattern (Implementation Detail)
+
+Layers communicate through **explicit state injection** via Python scripts invoked by the Makefile:
+
+### Provision → Configure
+
+Script: `scripts/inject-provision-to-configure.py`
+
+```bash
+make configure  # Internally runs:
+  1. Check Provision state exists
+  2. python3 scripts/inject-provision-to-configure.py
+     - Reads: terraform/bootstrap/platform/provision/terraform.tfstate
+     - Extracts: kube_host, cluster_ca_certificate, bootstrap_client_certificate, bootstrap_client_key
+     - Writes: terraform/bootstrap/platform/configure/terraform.auto.tfvars.json
+  3. terraform apply in Configure layer
+```
+
+**Why this pattern?**
+- Explicit, auditable credential flow
+- No tight coupling via remote state
+- Layer independence and modularity
+- Easy to debug and understand
+- Hybrid fallback: Direct variable input also supported
+
+### Configure → App-Env
+
+Script: `scripts/inject-configure-to-appenv.py`
+
+```bash
+make app-env  # Internally runs:
+  1. Check Configure state exists
+  2. python3 scripts/inject-configure-to-appenv.py
+     - Reads: terraform/bootstrap/platform/configure/terraform.tfstate
+     - Extracts: app_env_kube_host, app_env_kube_ca_certificate, app_env_kube_token
+     - Writes: terraform/app-env/terraform.auto.tfvars.json
+  3. terraform apply in App-Env layer
+```
+
+**Key difference from Provision → Configure:**
+- Configure layer extracts **long-lived token** (from platform-terraform ServiceAccount Secret)
+- This token persists indefinitely and is used for all future App-Env deployments
+- No dependency on short-lived Provision kubeconfig
+
+---
+
+## F. Long-Lived Token Strategy & Testing
+
+### Token Lifecycle
+
+| Phase | Credential | Lifespan | Purpose |
+|-------|-----------|----------|---------|
+| Provision | SKE kubeconfig (Client-Cert) | ~8h | Certificate-based auth for Configure layer |
+| Configure | platform-terraform token | Indefinite | Token-based auth for App-Env layer |
+| App-Env | Same platform-terraform token | Indefinite | Persistent automation identity |
+
+### Testing & Manual Access
+
+**Automated Testing:**
+
+```bash
+make test-connection
+```
+
+Runs automated checks:
+- Cluster connectivity (kubectl cluster-info)
+- Namespace existence (kubectl get ns demo-app)
+- ResourceQuota configuration
+- NetworkPolicy configuration
+
+**Manual Testing:**
+
+```bash
+make kubeconfig              # Generate kubeconfig with long-lived token
+export KUBECONFIG=/tmp/kubeconfig-token
+kubectl get ns demo-app      # Use kubectl with persistent credentials
+```
+
+**Why this matters:**
+- Original kubeconfig expires after ~8h
+- Token-based kubeconfig persists indefinitely
+- Enables reliable testing and manual operations
+- Foundation for CI/CD integration
+
+---
+
+## G. Makefile Orchestration
+
+The Makefile provides high-level targets that coordinate the three layers:
+
+```bash
+make validate      # Validate all layers
+make provision     # Deploy Provision layer (Phase A)
+make configure     # Inject + Deploy Configure layer (Phase B)
+make app-env       # Inject + Deploy App-Env layer (Phase C)
+make test-connection  # Verify deployment with automated tests
+make kubeconfig    # Generate persistent kubeconfig for manual access
+make down          # Destroy all layers (reverse order)
+```
+
+Each target encapsulates layer dependencies and state injection logic, simplifying operations and reducing manual error.
 
 ---
 
 ## Future Work
 
-- Add KMS provisioning to the Provision Layer and its internal configuration to the Configuration Layer.  
-- Add Argo CD setup following the same pattern (infrastructure vs. in-cluster configuration).  
-- Add DNS and observability components with clear Provision/Configuration separation.  
-- Introduce optional token rotation or OIDC federation for the platform ServiceAccount.  
-- Document operator workflows and CI usage based on the Provision/Configuration split.
+- **ADR-003:** Token rotation strategy (automatic vs. manual, Kubernetes CronJob, Secrets Manager integration)
+- **ADR-004:** Argo CD setup following the same Provision/Configuration pattern  
+- **ADR-005:** KMS and Secret Store provisioning and configuration  
+- **ADR-006:** DNS and Observability/Monitoring components with clear layer separation  
+- **ADR-007:** OIDC federation for platform-terraform ServiceAccount  
+- **CI/CD Integration:** Operator workflows for automated deployment and token management  
+- **Multi-Cluster Support:** Extend state injection pattern to manage multiple clusters  
+- **meshStack Integration:** Migrate from Makefile orchestration to Building Blocks (mapped to Provision/Configuration/App-Env layers)
 
 ---
 
