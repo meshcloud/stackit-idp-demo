@@ -1,6 +1,6 @@
 # Cluster Access: Operations Manual
 
-This document explains how long-term cluster access works in the IDP demo.
+This document explains how long-term cluster access works in the STACKIT IDP platform.
 
 ## Problem
 
@@ -10,223 +10,219 @@ This document explains how long-term cluster access works in the IDP demo.
 
 ## Solution: ServiceAccount-Based Access
 
-See **ADR-003** (Cluster Access Strategy) for technical details and **ADR-004** (Layer Integration Pattern) for Terraform layer decoupling.
+The platform uses Kubernetes ServiceAccounts for long-lived automation credentials. This ensures Terraform can manage cluster resources beyond the kubeconfig expiry window.
 
 ---
 
-## Workflow: Lokale Entwicklung
+## Deployment Workflow
 
-### Phase 1: Validate (optional)
-
-```bash
-make validate
-```
-
-Stellt sicher, dass beide Layer syntaktisch korrekt sind.
-
-### Phase 2: Deploy Bootstrap
+### Step 1: Deploy Platform Infrastructure
 
 ```bash
-make bootstrap
+cd platform
+
+# Set environment variables
+export STACKIT_PROJECT_ID="your-project-id"
+export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+export HARBOR_USERNAME="admin"
+export HARBOR_CLI_SECRET="your-harbor-secret"
+
+# Deploy all platform components
+terragrunt run-all plan
+terragrunt run-all apply
 ```
 
-**Was passiert:**
-1. SKE-Cluster wird erstellt (~10 min)
-2. Harbor Registry wird konfiguriert
-3. Terraform exportiert:
-   - `cluster_endpoint`: K8s API URL
-   - `cluster_ca_certificate`: CA-Zertifikat
-   - `registry_url`: Harbor Registry URL
-   - Weitere Outputs
+**What happens:**
+1. SKE cluster is created (~10 min)
+2. Harbor registry is provisioned
+3. meshStack integration is configured
+4. ArgoCD is installed
 
-### Phase 3: Deploy App-Env
+### Step 2: Provision Application Namespace
 
 ```bash
-make app-env
+cd platform/namespaces/team-a-dev
+terragrunt apply
 ```
 
-**Was das Makefile macht:**
-1. ✅ Checkt dass Bootstrap deployed ist
-2. ✅ Liest Bootstrap's `terraform.tfstate` und extrahiert Outputs
-3. ✅ Schreibt Outputs in `app-env/terraform.tfvars.auto.json`
-4. ✅ Deployed App-Env mit diesen Inputs
+**What gets created:**
+1. Kubernetes namespace with meshStack labels
+2. Resource quotas and network policies
+3. Harbor registry pull secret
+4. ArgoCD Application CR for GitOps
 
-**Was App-Env deployt:**
-1. RBAC: `terraform-admin` ServiceAccount + ClusterRole
-2. Kubernetes Secret für den Token
-3. Namespace `demo-app`
-4. ImagePullSecret für Harbor Registry
-
-### Phase 4: Zukünftige Deployments
+### Step 3: Setup Application Repository
 
 ```bash
-cd demo/terraform/app-env
+# Copy blueprint
+cp -r app-repo-blueprint team-a-app
+cd team-a-app
 
-# Token aus Cluster Secret auslesen (oder Secrets Manager)
-TOKEN=$(kubectl get secret terraform-admin-token -n kube-system \
-  -o jsonpath='{.data.token}' | base64 -d)
+# Configure GitHub secrets (in GitHub UI):
+# - HARBOR_USERNAME
+# - HARBOR_PASSWORD
+# - HARBOR_PROJECT
 
-# Deploy
-terraform apply -var="cluster_admin_token=$TOKEN"
+# Push to GitHub
+git init
+git remote add origin https://github.com/YOUR_ORG/team-a-app
+git add .
+git commit -m "Initial commit"
+git push -u origin main
 ```
 
-**Wichtig:** 
-- ✅ Bootstrap läuft weiterhin im Hintergrund (State File ist Source of Truth)
-- ✅ App-Env wird via `terraform_remote_state` automatisch mit Bootstrap verbunden
-- ✅ Keine Skripte, keine tfvars-Manipulation, keine enge Kopplung
+**GitOps automation:**
+- GitHub Actions builds and pushes image
+- CI updates Kustomize manifest with new image tag
+- ArgoCD detects Git change and syncs to cluster
 
 ---
 
-## Technische Details
+## Technical Details
 
-### Integration: terraform_remote_state
+### Terragrunt Dependency Management
 
 ```hcl
-# app-env/main.tf
-data "terraform_remote_state" "bootstrap" {
-  backend = "local"
-  config = {
-    path = var.bootstrap_state_path  # "../bootstrap/terraform.tfstate"
-  }
+# platform/04-argocd/terragrunt.hcl
+dependency "ske" {
+  config_path = "../01-ske"
 }
 
-# Automatisch: cluster_endpoint vom bootstrap lesen
-host = data.terraform_remote_state.bootstrap.outputs.cluster_endpoint
+inputs = {
+  kubeconfig_path = dependency.ske.outputs.kubeconfig_path
+}
 ```
 
-**Wie es funktioniert:**
-- App-Env definiert `bootstrap_state_path = "../bootstrap/terraform.tfstate"` (Variable mit Default)
-- Wenn app-env deployed wird, liest Terraform automatisch Bootstrap's State
-- Keine Abhängigkeit auf Skripte oder tfvars-Schreiben
-- Hybrid-Fallback: Falls `cluster_endpoint` direkt übergeben, nutze das statt Remote State
+**How it works:**
+- Terragrunt automatically manages execution order
+- Outputs from dependencies are available as inputs
+- S3 remote state configured in root `terragrunt.hcl`
+- No manual state file manipulation needed
 
 ### Credential Lifecycle
 
-| Komponente | Lebensdauer | Verwaltung | Nutzung |
+| Component | Lifetime | Management | Usage |
 |---|---|---|---|
-| SKE kubeconfig (Client-Cert) | ~8h | Von SKE Provider generiert | Admin kubectl (nur lokal) |
-| terraform-admin Token | Unbegrenzt | In K8s Secret gespeichert | Terraform Automation |
-| Bootstrap State | Unbegrenzt | In Filesystem/Backend | terraform_remote_state |
+| SKE kubeconfig (Client Cert) | ~8h | Generated by SKE provider | Local kubectl access |
+| ArgoCD ServiceAccount | Indefinite | Created by ArgoCD module | GitOps automation |
+| Harbor Robot Account | Indefinite | Created by Harbor module | Image push/pull |
 
-**Fluss:**
+**Flow:**
 
 ```
-Bootstrap:
-  kubeconfig (8h) --> [Initial RBAC Setup] --> create terraform-admin Token
+Platform Deployment:
+  kubeconfig (8h) → [Install ArgoCD] → ServiceAccount created
 
-App-Env:
-  terraform-admin Token (persistent) --> [stored in Secret] --> [used every deployment]
+Application Deployment:
+  ArgoCD ServiceAccount → [Watch Git] → Sync to cluster
+  Harbor Robot Account → [Pull images] → Deploy pods
 ```
 
 ---
 
-## Admin-Zugang (kubectl)
+## Admin Access (kubectl)
 
-Falls ein Admin manuell in den Cluster muss:
+For manual cluster access:
 
 ```bash
-# Fresh kubeconfig aus STACKIT holen
-cd demo/terraform/bootstrap
-terraform refresh  # Aktualisiert kubeconfig
+# Get fresh kubeconfig from platform
+cd platform/01-ske
+terragrunt output kubeconfig_path
 
-# Jetzt kann admin manuell kubectl-Befehle ausführen
-KUBECONFIG=../kubeconfig kubectl get nodes
+# Use kubeconfig
+export KUBECONFIG=$(terragrunt output -raw kubeconfig_path)
+kubectl get nodes
 ```
 
 ---
 
 ## Troubleshooting
 
-### "Unauthorized" beim terraform apply
+### ArgoCD Application Not Syncing
 
-**Ursache:** Token ist abgelaufen oder ungültig
-
-**Lösung:**
-
+**Check Application status:**
 ```bash
-# 1. Prüfe ob Token noch in Secret existiert
-kubectl get secret terraform-admin-token -n kube-system -o jsonpath='{.data.token}'
-
-# 2. Falls Secret fehlt: Starte app-env wieder mit frischer kubeconfig
-cd demo/terraform/app-env
-terraform destroy  # Nur RBAC-Ressourcen
-terraform apply   # Erstellt neue Token
-
-# 3. Exportiere neuen Token
-terraform output -raw service_account_token
-
-# 4. Nutze neuen Token für zukünftige Runs
-terraform apply -var="cluster_admin_token=$TOKEN"
+kubectl get applications -n argocd
+kubectl describe application team-a-dev -n argocd
 ```
 
-### kubeconfig läuft ab
-
-**Für Admin-Zugang:**
+**Manual sync:**
 ```bash
-cd demo/terraform/bootstrap
-terraform refresh
+argocd app sync team-a-dev
 ```
 
-**Für Automation:** Kein Problem, solange ServiceAccount-Token gültig ist. Die neue `terraform_remote_state`-Integration kümmert sich automatisch darum.
+### Harbor Pull Failures
 
-### terraform_remote_state kann State nicht lesen
-
-**Ursache:** Bootstrap wurde noch nicht deployed, oder State-Path ist falsch
-
-**Lösung:**
+**Check pull secret:**
 ```bash
-# 1. Stelle sicher dass Bootstrap deployed ist
-cd demo/terraform/bootstrap && terraform apply
+kubectl get secret harbor-pull-secret -n team-a-dev -o yaml
+kubectl describe pod POD_NAME -n team-a-dev
+```
 
-# 2. Überprüfe State-Path
-cd demo/terraform/app-env && terraform console
-> data.terraform_remote_state.bootstrap.outputs.cluster_endpoint
-# Sollte die API-URL zeigen
+### Kubeconfig Expired
 
-# 3. Falls immer noch Problem: übergebe Werte direkt
-terraform apply -var="cluster_endpoint=https://..." \
-                -var="cluster_ca_certificate=..." \
-                -var="cluster_admin_token=$TOKEN"
+**For admin access:**
+```bash
+cd platform/01-ske
+terragrunt refresh
+```
+
+**For automation:** No issue - ArgoCD uses ServiceAccount credentials that don't expire.
+
+### Terragrunt Dependency Issues
+
+**Clear cache:**
+```bash
+find . -name ".terragrunt-cache" -type d -exec rm -rf {} +
+terragrunt run-all init
+```
+
+**Check dependency graph:**
+```bash
+terragrunt graph-dependencies
 ```
 
 ---
 
 ## Best Practices
 
-1. **Nie kubeconfig in Git committen** → wird ungültig + unsicher
-2. **ServiceAccount-Token sicher speichern** → Vault, Secrets Manager, Encrypted Git
-3. **Regelmäßig testen** → `terraform plan` mindestens weekly
-4. **Monitoring** → Logs wenn ServiceAccount-Token rotation erforderlich
-5. **Keine Skripte für tfvars-Manipulation** → nutze `terraform_remote_state` oder direkte Variablen
-6. **terraform.tfstate Backup** → State ist Quelle aller Wahrheit
+1. **Never commit kubeconfig** → expires after 8h, security risk
+2. **Store Harbor credentials securely** → use GitHub Secrets for CI
+3. **Test regularly** → `terragrunt run-all plan` weekly
+4. **Backup state** → S3 bucket is critical
+5. **Use GitOps** → let ArgoCD handle deployments
+6. **Monitor ArgoCD** → watch for sync failures
 
 ---
 
-## Building Blocks / meshStack Migration
+## Building Blocks / meshStack Integration
 
-Die aktuelle Architektur ist **zukunftssicher für meshStack**:
+The platform is **ready for meshStack Building Blocks**:
 
 ```hcl
-# In meshStack: Direct Module Wiring statt terraform_remote_state
-module "app-env" {
-  source = "git::https://...app-env"
+# meshStack can wrap platform modules as Building Blocks
+module "namespace" {
+  source = "git::https://.../building-blocks/namespace-with-argocd"
   
-  cluster_endpoint        = module.bootstrap.cluster_endpoint
-  cluster_ca_certificate  = module.bootstrap.cluster_ca_certificate
-  cluster_admin_token     = var.bootstrap_admin_token
-  
-  depends_on = [module.bootstrap]
+  namespace_name        = var.meshstack_workspace_id
+  github_repo_url       = var.team_git_repo
+  harbor_robot_username = var.harbor_robot_username
+  harbor_robot_token    = var.harbor_robot_token
 }
 ```
 
-**Code ändert sich nicht!** Nur Integration-Mechanik wechselt von `terraform_remote_state` zu direktem Modul-Output.
+**Integration points:**
+- Building blocks are self-contained Terraform modules
+- meshStack provides tenant/project metadata as variables
+- Modules use Terragrunt dependencies for platform resources
 
 ---
 
-## Zukünftige Verbesserungen
+## Future Enhancements
 
-- [ ] Token-Rotation automatisieren (Kubernetes CronJob)
-- [ ] Secrets Manager Integration (Vault, AWS Secrets)
-- [ ] OIDC-federierte ServiceAccounts (falls STACKIT unterstützt)
-- [ ] Multi-Tenant RBAC (pro-App ServiceAccounts statt Cluster-Admin)
-- [ ] Remote Backend Support für terraform_remote_state (S3, Terraform Cloud, etc.)
+- [ ] ServiceAccount token rotation automation
+- [ ] Vault integration for secrets
+- [ ] OIDC-federated ServiceAccounts
+- [ ] Multi-tenant RBAC (namespace-scoped ServiceAccounts)
+- [ ] Prometheus/Grafana monitoring
+- [ ] Ingress controller for external access
