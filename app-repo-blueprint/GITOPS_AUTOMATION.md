@@ -4,25 +4,17 @@ This repository implements the **recommended ArgoCD GitOps pattern** for automat
 
 ## How It Works
 
-### Traditional (Non-GitOps) Approach ❌
-```
-CI builds image → Push to registry → CI deploys directly to cluster (kubectl apply)
-```
-Problems:
-- Git doesn't reflect deployed state
-- No audit trail
-- Hard to rollback
-- Requires cluster credentials in CI
-
-### Our GitOps Approach ✅
+**GitOps Deployment Flow:**
 ```
 CI builds image → Push to registry → CI updates Git manifest → ArgoCD syncs to cluster
 ```
-Benefits:
+
+**Key Benefits:**
 - Git is single source of truth
 - Full audit trail in Git history
 - Easy rollback with git revert
 - No cluster credentials in CI pipeline
+- Separation of concerns: CI builds, ArgoCD deploys
 
 ## Implementation Details
 
