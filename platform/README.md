@@ -223,35 +223,12 @@ tfstate-meshstack-backend/
 └── namespaces/team-a-dev/terraform.tfstate
 ```
 
-## Advantages Over Old Bootstrap Structure
+## Security
 
-| Old (demo/terraform/bootstrap) | New (platform/) |
-|-------------------------------|-----------------|
-| 3-layer Makefile orchestration | Terragrunt dependency graph |
-| Manual state management | Centralized S3 backend |
-| Hardcoded paths | Dynamic module resolution |
-| No building blocks | Reusable namespace module |
-| Manual namespace setup | Automated GitOps integration |
-
-## Security Best Practices
-
-1. **Secrets Management**
-   - Use environment variables for credentials
-   - Never commit secrets to Git
-   - Rotate Harbor robot accounts regularly
-
-2. **Network Policies**
-   - Default-deny ingress/egress
-   - Teams add explicit allow rules
-
-3. **Resource Quotas**
-   - CPU/Memory limits enforced
-   - Pod count restrictions
-
-4. **RBAC**
-   - Namespace-scoped permissions
-   - ArgoCD service account for deployments
-   - Platform team has cluster-admin
+- Default-deny network policies (teams add explicit allow rules)
+- Resource quotas enforced (CPU/Memory/Pod limits)
+- Namespace-scoped RBAC
+- Secrets via environment variables (never committed to Git)
 
 ## Troubleshooting
 

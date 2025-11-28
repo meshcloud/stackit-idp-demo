@@ -58,28 +58,13 @@ git commit -m "Initial commit"
 git push origin main
 ```
 
-## How Deployment Works (GitOps with ArgoCD)
+## How Deployment Works
 
-The deployment follows the recommended ArgoCD pattern:
-
-1. **Developer pushes code** to `main` branch
-2. **GitHub Actions triggers** and:
-   - Builds Docker image
-   - Tags with Git SHA (e.g., `main-abc123`)
-   - Pushes to Harbor registry
-   - **Updates `manifests/base/kustomization.yaml`** with new image tag
-   - **Commits and pushes** manifest change to Git
-3. **ArgoCD detects Git change** (via webhook or polling)
-4. **ArgoCD syncs** the new manifest to your namespace
-5. **Kubernetes performs rolling update** with new image
-
-### Why This Works
-
-- ✅ **Git is source of truth**: Exact image version is tracked in Git
-- ✅ **Automatic deployment**: Push code → auto-deployed
-- ✅ **Easy rollback**: `git revert` to rollback deployment
-- ✅ **Audit trail**: All deployments visible in Git history
-- ✅ **No manual steps**: Fully automated GitOps workflow
+1. Push code to `main` branch
+2. GitHub Actions builds image and pushes to Harbor
+3. GitHub Actions updates manifest with new image tag and commits
+4. ArgoCD detects manifest change and syncs to cluster
+5. Kubernetes performs rolling update
 
 ## Development
 
@@ -100,36 +85,6 @@ Visit http://localhost:8000
 Edit manifests in `manifests/overlays/dev/` or `manifests/overlays/prod/`
 
 ArgoCD monitors these files and auto-syncs to your namespace.
-
-## Architecture
-
-```
-Developer pushes code
-    ↓
-GitHub Actions CI/CD Pipeline:
-  1. Build Docker image
-  2. Push to Harbor (registry.onstackit.cloud)
-  3. Update manifests/base/kustomization.yaml (newTag: main-<sha>)
-  4. Commit & push manifest change
-    ↓
-Git repository updated
-    ↓
-ArgoCD detects Git change (webhook/polling)
-    ↓
-ArgoCD syncs manifests to SKE namespace
-    ↓
-Kubernetes rolling update
-    ↓
-Pods pull new image from Harbor
-    ✓ Deployed
-```
-
-### GitOps Flow Benefits
-
-- **Declarative**: Desired state in Git
-- **Automated**: No manual kubectl commands
-- **Auditable**: Git history shows all deployments
-- **Reversible**: Git revert to rollback
 
 ## Support
 
