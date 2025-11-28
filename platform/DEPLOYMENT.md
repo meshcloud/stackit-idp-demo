@@ -6,6 +6,27 @@ Step-by-step guide to deploy the STACKIT IDP platform.
 
 ⚠️ **This MUST be deployed before anything else** - it creates the S3 bucket where all other modules store their state.
 
+### Option A: Source from .env file
+
+```bash
+cd platform/00-state-bucket
+
+# Copy and customize environment template
+cp ../env.example ../.env
+# Edit .env with real values (STACKIT_PROJECT_ID, STACKIT_SERVICE_ACCOUNT_KEY_PATH, etc.)
+nano ../.env
+
+# Load environment variables
+set -a
+source ../.env
+set +a
+
+terragrunt init
+terragrunt apply
+```
+
+### Option B: Manual export
+
 ```bash
 cd platform/00-state-bucket
 
@@ -37,7 +58,21 @@ See `00-state-bucket/README.md` for details.
 
 ### Step 1: Configure Environment
 
-**Set credentials** (including S3 credentials from Phase 0):
+**Option A: Source from .env file** (recommended):
+
+```bash
+# If you haven't already created .env in Phase 0:
+cp env.example .env
+# Edit .env with all credentials (STACKIT, S3 from Phase 0, Harbor, ArgoCD)
+nano .env
+
+# Load environment variables
+set -a
+source .env
+set +a
+```
+
+**Option B: Manual export**:
 
 ```bash
 # STACKIT

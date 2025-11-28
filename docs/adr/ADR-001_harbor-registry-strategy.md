@@ -1,7 +1,8 @@
 # **ADR-001 — Harbor Registry Project Strategy (Platform-Level vs. App-Level)**
 
-**Status:** Proposed
-**Date:** 2025-11-18
+**Status:** Accepted
+**Date:** 2025-11-18  
+**Updated:** 2025-11-28
 **Context:** Sovereign Developer Platform (STACKIT-based IDP Demo)
 
 ---
@@ -9,10 +10,10 @@
 ## **1. Decision**
 
 For the initial version of the Sovereign Developer Platform (bootstrap + app-env),
-we provision **one shared Harbor registry project** during the *bootstrap* phase:
+we use **one pre-existing shared Harbor registry project**:
 
 ```
-Harbor Project: platform-demo
+Harbor Project: registry
 ```
 
 All application environments (app-env) will push and pull images from repositories inside this single project.
@@ -20,17 +21,17 @@ All application environments (app-env) will push and pull images from repositori
 Example:
 
 ```
-platform-demo/my-app
-platform-demo/dev-portal
-platform-demo/aider-proxy
-platform-demo/demo-service
+registry/my-app
+registry/dev-portal
+registry/aider-proxy
+registry/demo-service
 ```
 
-A single **Robot Account** will be created and used by:
+A single **pre-existing Robot Account** (`robot$registry+robotaccount`) is used by:
 
-* Tiny CI / local build pipeline
-* Argo CD (image pull)
-* Helm charts in app-env
+* GitHub Actions CI pipelines (image push)
+* ArgoCD (image pull)
+* All application namespaces (image pull)
 
 ---
 
@@ -47,9 +48,11 @@ A single **Robot Account** will be created and used by:
 * **Cleaner Webinar Story:**
   Platform team provisions *one* sovereign registry; developer workspaces consume it automatically.
 
-* **Avoids current STACKIT Harbor quirks:**
-  STACKIT Harbor runs in strict OIDC mode → robot accounts must be created by an admin user.
-  Using one project avoids repeated OIDC logins and reduces token complexity.
+* **STACKIT Harbor uses OIDC authentication:**
+  STACKIT Harbor runs in strict OIDC mode (`auth_mode: oidc_auth`) with STACKIT IDP.
+  No admin username/password credentials are available for automated Harbor resource management.
+  Harbor Terraform provider cannot be used without admin credentials.
+  **Solution:** Use manually created Harbor project and robot account, pass credentials via environment variables.
 
 ---
 
@@ -128,23 +131,40 @@ This hits a sweet spot:
 For the **demo**, **PoC**, and **early internal implementations**,
 we adopt:
 
-👉 **One shared Harbor project (`platform-demo`) provisioned in bootstrap.**
+👉 **One pre-existing shared Harbor project (`registry`) with manually created robot account.**
 
-The Terraform architecture will be kept modular so that:
+The Harbor project and robot account are **NOT managed by Terraform** due to STACKIT Harbor's OIDC-only authentication model.
 
-* switching to per-app registry projects, or
-* switching to per-team/per-tenant registry projects
+**Implementation:**
+- Harbor project `registry` - manually created via STACKIT Harbor UI
+- Robot account `robot$registry+robotaccount` - manually created via Harbor UI
+- Credentials stored in environment variables: `HARBOR_ROBOT_USERNAME` and `HARBOR_ROBOT_TOKEN`
+- All platform modules consume credentials from environment (no Terraform Harbor provider needed)
 
-can be implemented later with minimal refactoring (primarily changing module call locations).
+**Deployment modules:**
+- `platform/00-state-bucket` - S3 backend for Terraform state
+- `platform/01-ske` - STACKIT Kubernetes Engine cluster
+- `platform/02-meshstack` - meshStack integration
+- `platform/03-argocd` - ArgoCD with Harbor pull secret (uses env vars)
+- `platform/99-harbor-deprecated` - **SKIPPED** - Harbor Terraform module not usable with OIDC Harbor
+
+The architecture supports future migration to:
+* per-app registry projects, or
+* per-team/per-tenant registry projects
+
+when admin credentials or alternative automation approaches become available.
 
 ---
 
 ## **6. Notes**
 
+* **STACKIT Harbor Authentication:** Uses OIDC with STACKIT IDP (`auth_mode: oidc_auth`), Harbor v2.13.0
+* **Manual Setup Required:** Harbor project and robot account must be created through Harbor UI
+* **No Terraform Management:** Harbor Terraform provider requires admin credentials (username/password) which are not available in OIDC mode
+* **Credential Flow:** Environment variables → Terragrunt → Kubernetes secrets (in ArgoCD namespace and app namespaces)
+* Robot account credentials are the **only** credentials needed for all operations (push/pull)
 * The chosen approach aligns well with the first meshStack Building Block prototype:
   *bootstrap = platform resources; app-env = per-workspace resources.*
-* Robot accounts will be the authoritative credential mechanism;
-  OIDC/CLI secrets are used only to bootstrap the robot accounts.
 
 ---
 
@@ -167,27 +187,31 @@ Allows relocation of Harbor project creation from `bootstrap` to `app-env` witho
 
 ---
 
-### **7.2 All cross-module integrations must use outputs**
+### **7.2 All cross-module integrations must use variables (not Terraform dependencies)**
 
-No module may reference another module by path or internal structure.
-Instead:
+Harbor credentials are not managed by Terraform, therefore modules cannot use Terraform `dependency` blocks for Harbor.
 
+**Current Implementation:**
+Harbor credentials flow via environment variables:
+
+```bash
+# In platform/.env
+HARBOR_ROBOT_USERNAME=robot$registry+robotaccount
+HARBOR_ROBOT_TOKEN=<token>
 ```
-output "registry_url" {}
-output "robot_username" {}
-output "robot_token" {}
-```
 
-And in app-env:
-
-```
-registry_url    = module.bootstrap.registry_url
-robot_username  = module.bootstrap.robot_username
-robot_token     = module.bootstrap.robot_token
+```hcl
+# In terragrunt.hcl files
+inputs = {
+  harbor_robot_username = get_env("HARBOR_ROBOT_USERNAME")
+  harbor_robot_token    = get_env("HARBOR_ROBOT_TOKEN")
+}
 ```
 
 **Reason:**
-To allow isolation levels (platform-level → team-level → app-level) to be changed *without breaking module dependencies*.
+- STACKIT Harbor uses OIDC → no admin credentials → no Terraform provider usage
+- Environment variables provide clean separation between manual setup and automated deployment
+- Future automation (if admin credentials become available) can replace env vars with Terraform outputs
 
 ---
 
@@ -210,12 +234,20 @@ Later registry-per-app or registry-per-tenant layouts become trivial.
 
 ---
 
-### **7.4 Robot accounts must be created in the same module where the Harbor project is created**
+### **7.4 Robot accounts are created manually (not via Terraform)**
 
-And their credentials must be exported as outputs.
+Due to STACKIT Harbor's OIDC authentication model, Harbor projects and robot accounts cannot be managed via Terraform.
+
+**Current Process:**
+1. Manually create Harbor project via STACKIT Harbor UI
+2. Manually create robot account in Harbor UI
+3. Store credentials in `platform/.env`:
+   - `HARBOR_ROBOT_USERNAME=robot$registry+robotaccount`
+   - `HARBOR_ROBOT_TOKEN=<token>`
+4. Terraform modules consume credentials from environment variables
 
 **Reason:**
-Robot accounts are project-scoped → ensures separation of duties and allows future isolation without affecting CI/ArgoCD logic.
+Robot accounts are project-scoped and require admin credentials for automation. STACKIT Harbor's OIDC-only mode prevents Terraform provider usage. This manual approach ensures demo/PoC viability while maintaining clean separation of credentials from code.
 
 ---
 

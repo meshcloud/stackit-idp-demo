@@ -9,19 +9,18 @@ Complete Internal Developer Platform on STACKIT infrastructure using Terragrunt,
 ```
 stackit-idp-demo/
 ├── platform/                           # THIS REPO - Platform Infrastructure
-│   ├── terragrunt.hcl                 # Root config + S3 backend
+│   ├── root.hcl                       # Root config + S3 backend
 │   ├── 00-state-bucket/               # ⚠️ DEPLOY FIRST - Creates S3 bucket
 │   ├── 01-ske/                        # SKE Kubernetes cluster
-│   ├── 02-harbor/                     # Harbor container registry
-│   ├── 03-meshstack/                  # meshStack platform integration
-│   ├── 04-argocd/                     # ArgoCD GitOps controller
+│   ├── 02-meshstack/                  # meshStack platform integration (placeholder)
+│   ├── 03-argocd/                     # ArgoCD GitOps controller
 │   └── building-blocks/
 │       └── namespace-with-argocd/     # Namespace provisioning module
 ├── app-repo-blueprint/                # Template for app teams
 │   ├── app/                           # Python FastAPI application
 │   ├── manifests/                     # Kubernetes manifests
 │   └── .github/workflows/             # CI/CD pipeline
-└── demo/terraform/                    # Legacy bootstrap (deprecated)
+└── docs/                              # Documentation
 ```
 
 ### Component Flow
@@ -65,21 +64,34 @@ stackit-idp-demo/
 
 ### Prerequisites
 
-1. **STACKIT Credentials**
-   ```bash
-   export STACKIT_PROJECT_ID="your-project-id"
-   export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
-   ```
-
-2. **Harbor Credentials**
-   ```bash
-   export HARBOR_USERNAME="admin"
-   export HARBOR_CLI_SECRET="your-harbor-password"
-   ```
-
-3. **Install Tools**
+1. **Install Tools**
    ```bash
    brew install terragrunt terraform
+   ```
+
+2. **Configure Environment Variables**
+
+   **Option A: Source from .env file** (recommended):
+   ```bash
+   cp env.example .env
+   # Edit .env with real credentials
+   nano .env
+   
+   # Load environment variables
+   set -a
+   source .env
+   set +a
+   ```
+
+   **Option B: Manual export**:
+   ```bash
+   # STACKIT
+   export STACKIT_PROJECT_ID="your-project-id"
+   export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+   
+   # Harbor
+   export HARBOR_USERNAME="admin"
+   export HARBOR_CLI_SECRET="your-harbor-password"
    ```
 
 ### Deploy Platform

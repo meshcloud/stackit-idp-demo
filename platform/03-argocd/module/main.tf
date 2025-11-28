@@ -8,23 +8,35 @@ terraform {
       source  = "hashicorp/helm"
       version = ">= 2.10"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.5"
+    }
+    bcrypt = {
+      source  = "viktorradnai/bcrypt"
+      version = ">= 0.1.2"
+    }
   }
 }
 
 provider "kubernetes" {
-  host                   = var.kube_host
-  cluster_ca_certificate = base64decode(var.cluster_ca_certificate)
-  client_certificate     = base64decode(var.bootstrap_client_certificate)
-  client_key             = base64decode(var.bootstrap_client_key)
+  config_path = "${path.module}/kubeconfig.yaml"
 }
 
 provider "helm" {
-  kubernetes {
-    host                   = var.kube_host
-    cluster_ca_certificate = base64decode(var.cluster_ca_certificate)
-    client_certificate     = base64decode(var.bootstrap_client_certificate)
-    client_key             = base64decode(var.bootstrap_client_key)
+  kubernetes = {
+    config_path = "${path.module}/kubeconfig.yaml"
   }
+}
+
+resource "random_password" "argocd_admin" {
+  length  = 24
+  special = true
+}
+
+resource "bcrypt_hash" "argocd_admin" {
+  cleartext = random_password.argocd_admin.result
+  cost      = 10
 }
 
 resource "kubernetes_namespace" "argocd" {
@@ -47,7 +59,7 @@ resource "helm_release" "argocd" {
     yamlencode({
       configs = {
         secret = {
-          argocdServerAdminPassword = var.admin_password_bcrypt
+          argocdServerAdminPassword = bcrypt_hash.argocd_admin.id
         }
       }
       server = {
@@ -142,4 +154,25 @@ data "kubernetes_secret" "platform_terraform_token" {
   }
   
   depends_on = [kubernetes_secret.platform_terraform_token]
+}
+
+resource "kubernetes_secret" "harbor_pull_secret" {
+  metadata {
+    name      = "harbor-pull-secret"
+    namespace = kubernetes_namespace.argocd.metadata[0].name
+  }
+
+  type = "kubernetes.io/dockerconfigjson"
+
+  data = {
+    ".dockerconfigjson" = jsonencode({
+      auths = {
+        "${var.harbor_url}" = {
+          username = var.harbor_robot_username
+          password = var.harbor_robot_token
+          auth     = base64encode("${var.harbor_robot_username}:${var.harbor_robot_token}")
+        }
+      }
+    })
+  }
 }
