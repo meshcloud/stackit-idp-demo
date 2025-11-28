@@ -10,6 +10,7 @@ Complete Internal Developer Platform on STACKIT infrastructure using Terragrunt,
 stackit-idp-demo/
 ├── platform/                           # THIS REPO - Platform Infrastructure
 │   ├── terragrunt.hcl                 # Root config + S3 backend
+│   ├── 00-state-bucket/               # ⚠️ DEPLOY FIRST - Creates S3 bucket
 │   ├── 01-ske/                        # SKE Kubernetes cluster
 │   ├── 02-harbor/                     # Harbor container registry
 │   ├── 03-meshstack/                  # meshStack platform integration
@@ -28,6 +29,10 @@ stackit-idp-demo/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Platform Layer (Terragrunt)                                │
+│  ┌──────────────┐                                           │
+│  │00-StateBucket│  ← DEPLOY FIRST (local state)            │
+│  └──────────────┘                                           │
+│         ↓ Creates S3 bucket for remote state                │
 │  ┌──────────┐  ┌─────────┐  ┌───────────┐  ┌─────────┐    │
 │  │ 01-SKE   │→ │02-Harbor│→ │03-meshStack│→ │04-ArgoCD│    │
 │  │ Cluster  │  │Registry │  │Integration │  │GitOps   │    │
@@ -79,9 +84,20 @@ stackit-idp-demo/
 
 ### Deploy Platform
 
+**Step 1: Create State Bucket (MUST DO FIRST)**
 ```bash
-cd platform
+cd platform/00-state-bucket
+terragrunt init
+terragrunt apply
 
+# Save credentials for next steps
+export AWS_ACCESS_KEY_ID=$(terragrunt output -raw access_key_id)
+export AWS_SECRET_ACCESS_KEY=$(terragrunt output -raw secret_access_key)
+```
+
+**Step 2: Deploy Platform Modules**
+```bash
+cd ..
 terragrunt run-all plan
 terragrunt run-all apply
 

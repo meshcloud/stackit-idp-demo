@@ -2,19 +2,53 @@
 
 Step-by-step guide to deploy the STACKIT IDP platform.
 
-## Phase 1: State Bucket (Already Complete)
+## Phase 0: Create State Bucket (Deploy First!)
 
-✅ S3 bucket for Terraform state already exists:
-- Bucket: `tfstate-meshstack-backend`
-- Endpoint: `https://object.storage.eu01.onstackit.cloud`
+⚠️ **This MUST be deployed before anything else** - it creates the S3 bucket where all other modules store their state.
 
-## Phase 2: Deploy Platform Components
+```bash
+cd platform/00-state-bucket
+
+export STACKIT_PROJECT_ID="your-project-id"
+export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+
+terragrunt init
+terragrunt apply
+```
+
+**Save the credentials:**
+```bash
+export AWS_ACCESS_KEY_ID=$(terragrunt output -raw access_key_id)
+export AWS_SECRET_ACCESS_KEY=$(terragrunt output -raw secret_access_key)
+
+# Add to env.example for future use
+echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> ../env.example
+echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> ../env.example
+```
+
+This creates:
+- ✅ S3 bucket: `tfstate-meshstack-backend`
+- ✅ Access credentials for Terraform state storage
+- ✅ Endpoint: `https://object.storage.eu01.onstackit.cloud`
+
+See `00-state-bucket/README.md` for details.
+
+## Phase 1: Deploy Platform Components
 
 ### Step 1: Configure Environment
 
+**Set credentials** (including S3 credentials from Phase 0):
+
 ```bash
+# STACKIT
 export STACKIT_PROJECT_ID="your-project-id"
 export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+
+# S3 (from Phase 0 outputs)
+export AWS_ACCESS_KEY_ID="your-access-key-from-phase-0"
+export AWS_SECRET_ACCESS_KEY="your-secret-key-from-phase-0"
+
+# Harbor
 export HARBOR_USERNAME="admin"
 export HARBOR_CLI_SECRET="your-harbor-password"
 ```
@@ -84,7 +118,7 @@ Login with:
 - Username: `admin`
 - Password: (from `ARGOCD_ADMIN_PASSWORD_BCRYPT` environment variable)
 
-## Phase 3: Onboard First Application
+## Phase 2: Onboard First Application
 
 ### Option A: Use Building Block Directly
 
@@ -167,7 +201,7 @@ terragrunt apply
    - Push to Harbor
    - ArgoCD syncs manifests to namespace
 
-## Phase 4: Verify Deployment
+## Phase 3: Verify Deployment
 
 ### Check Platform Status
 
@@ -201,7 +235,7 @@ kubectl port-forward -n demo-app svc/platform-demo 8080:80
 curl http://localhost:8080/health
 ```
 
-## Phase 5: Integrate with meshStack
+## Phase 4: Integrate with meshStack
 
 ### Configure Building Block in meshStack
 
