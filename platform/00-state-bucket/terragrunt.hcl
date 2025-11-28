@@ -1,5 +1,7 @@
-terraform {
-  source = "./module"
+include "root" {
+  path = find_in_parent_folders()
+  
+  merge_strategy = "shallow"
 }
 
 remote_state {
@@ -10,7 +12,6 @@ remote_state {
   }
 }
 
-inputs = {
-  stackit_project_id = get_env("STACKIT_PROJECT_ID")
-  stackit_region     = "eu01"
+terraform {
+  source = "./module"
 }
