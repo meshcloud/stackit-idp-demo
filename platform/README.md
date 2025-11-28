@@ -14,17 +14,83 @@ stackit-idp-demo/
 │   ├── 01-ske/                        # SKE Kubernetes cluster
 │   ├── 02-meshstack/                  # meshStack platform integration (placeholder)
 │   ├── 03-argocd/                     # ArgoCD GitOps controller
+│   ├── 04-argo-workflows/             # Argo Workflows + Events (CI/CD)
 │   └── building-blocks/
 │       └── namespace-with-argocd/     # Namespace provisioning module
-├── app-repo-blueprint/                # Template for app teams
+├── app-repo-blueprint/                # Template for app teams (GitHub Actions)
 │   ├── app/                           # Python FastAPI application
 │   ├── manifests/                     # Kubernetes manifests
 │   └── .github/workflows/             # CI/CD pipeline
+├── app-repo-blueprint-argo-workflows/ # Template for STACKIT Git + Argo Workflows
+│   ├── app/                           # Python FastAPI application
+│   └── argo-manifests/                # EventSource, Sensor, WorkflowTemplate
 └── docs/                              # Documentation
 ```
 
 ### Component Flow
 
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Platform Layer (Terragrunt)                                │
+│  ┌──────────────┐                                           │
+│  │00-StateBucket│  ← DEPLOY FIRST (local state)            │
+│  └──────────────┘                                           │
+│         ↓ Creates S3 bucket for remote state                │
+│  ┌──────────┐  ┌───────────┐  ┌─────────┐  ┌──────────┐   │
+│  │ 01-SKE   │→ │02-meshStack│→ │03-ArgoCD│→ │04-Argo   │   │
+│  │ Cluster  │  │Integration │  │GitOps   │  │Workflows │   │
+│  └──────────┘  └───────────┘  └─────────┘  └──────────┘   │
+│                                    ↓                         │
+│                       ┌────────────────────────┐            │
+│                       │ Building Block Module  │            │
+│                       │ namespace-with-argocd  │            │
+│                       └────────────────────────┘            │
+└─────────────────────────────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────┐
+│  App Team Workflow (Option A: GitHub Actions)               │
+│                                                              │
+│  ┌──────────────┐    GitHub Actions    ┌──────────────┐    │
+│  │ GitHub Repo  │  ─────────────────→  │ Harbor       │    │
+│  │ (app code +  │   Build & Push Image │ (container   │    │
+│  │  manifests)  │                      │  registry)   │    │
+│  └──────────────┘                      └──────────────┘    │
+│        ↓                                       ↓             │
+│  ┌──────────────┐                      ┌──────────────┐    │
+│  │ ArgoCD       │  ←───────────────    │ SKE Cluster  │    │
+│  │ (watches     │   Pulls manifests    │ (pulls image)│    │
+│  │  manifests)  │                      │              │    │
+│  └──────────────┘                      └──────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  App Team Workflow (Option B: STACKIT Git + Argo Workflows) │
+│                                                              │
+│  ┌──────────────┐   Webhook on Push   ┌──────────────┐     │
+│  │ STACKIT Git  │  ─────────────────→ │ EventSource  │     │
+│  │ Service      │                     │ (argo ns)    │     │
+│  └──────────────┘                     └──────────────┘     │
+│                                              ↓               │
+│                                       ┌──────────────┐      │
+│                                       │ Sensor       │      │
+│                                       │ (triggers)   │      │
+│                                       └──────────────┘      │
+│                                              ↓               │
+│                                       ┌──────────────┐      │
+│                                       │ Workflow     │      │
+│                                       │ (Kaniko)     │      │
+│                                       └──────────────┘      │
+│                                              ↓               │
+│                                       ┌──────────────┐      │
+│                                       │ Harbor       │      │
+│                                       │ (image)      │      │
+│                                       └──────────────┘      │
+│                                              ↓               │
+│                                       ┌──────────────┐      │
+│                                       │ ArgoCD       │      │
+│                                       │ (deploys)    │      │
+│                                       └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Platform Layer (Terragrunt)                                │
@@ -114,7 +180,8 @@ terragrunt run-all plan
 terragrunt run-all apply
 
 cd 01-ske && terragrunt output -raw kube_host
-cd ../04-argocd && terragrunt output
+cd ../03-argocd && terragrunt output
+cd ../04-argo-workflows && terragrunt output
 ```
 
 ### Onboard Application Team

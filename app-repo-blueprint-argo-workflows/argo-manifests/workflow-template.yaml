@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: kaniko-build
+  namespace: argo
+spec:
+  serviceAccountName: argo-workflow
+  arguments:
+    parameters:
+      - name: repo-url
+        value: "git@git.stackit.cloud:myproject/myrepo.git"
+      - name: revision
+        value: "main"
+      - name: image-name
+        value: "harbor.example.com/myproject/myapp"
+      - name: image-tag
+        value: "latest"
+      - name: dockerfile-path
+        value: "./Dockerfile"
+      - name: context-path
+        value: "."
+  entrypoint: build-and-push
+  volumes:
+    - name: docker-config
+      secret:
+        secretName: harbor-pull-secret
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+  templates:
+    - name: build-and-push
+      steps:
+        - - name: clone
+            template: git-clone
+        - - name: build
+            template: kaniko-build
+
+    - name: git-clone
+      inputs:
+        artifacts:
+          - name: source-code
+            path: /workspace
+            git:
+              repo: "{{workflow.parameters.repo-url}}"
+              revision: "{{workflow.parameters.revision}}"
+              sshPrivateKeySecret:
+                name: git-ssh-key
+                key: ssh-private-key
+      container:
+        image: alpine/git:latest
+        command: [sh, -c]
+        args:
+          - |
+            echo "Repository cloned successfully"
+            ls -la /workspace
+
+    - name: kaniko-build
+      inputs:
+        artifacts:
+          - name: source-code
+            path: /workspace
+            git:
+              repo: "{{workflow.parameters.repo-url}}"
+              revision: "{{workflow.parameters.revision}}"
+              sshPrivateKeySecret:
+                name: git-ssh-key
+                key: ssh-private-key
+      container:
+        image: gcr.io/kaniko-project/executor:latest
+        command: [/kaniko/executor]
+        args:
+          - --dockerfile={{workflow.parameters.dockerfile-path}}
+          - --context=/workspace/{{workflow.parameters.context-path}}
+          - --destination={{workflow.parameters.image-name}}:{{workflow.parameters.image-tag}}
+          - --cache=true
+          - --cache-ttl=24h
+        volumeMounts:
+          - name: docker-config
+            mountPath: /kaniko/.docker/

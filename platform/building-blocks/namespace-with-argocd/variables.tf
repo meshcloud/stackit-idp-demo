@@ -124,3 +124,33 @@ variable "argocd_auto_sync" {
   description = "Enable ArgoCD auto-sync"
   default     = true
 }
+
+variable "enable_argo_workflows" {
+  type        = bool
+  description = "Enable Argo Workflows resources for CI/CD"
+  default     = false
+}
+
+variable "argo_workflows_namespace" {
+  type        = string
+  description = "Namespace where Argo Workflows is installed"
+  default     = "argo-workflows"
+}
+
+variable "git_repo_url" {
+  type        = string
+  description = "Git repository URL for Argo Workflows (e.g., STACKIT Git)"
+  default     = ""
+}
+
+variable "image_name" {
+  type        = string
+  description = "Full image name for builds (e.g., harbor.example.com/project/app)"
+  default     = ""
+}
+
+variable "git_ssh_secret_name" {
+  type        = string
+  description = "Name of the secret containing SSH private key for git"
+  default     = "git-ssh-key"
+}

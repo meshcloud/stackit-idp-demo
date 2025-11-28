@@ -199,3 +199,164 @@ resource "kubernetes_role_binding" "app_deployer" {
     namespace = var.argocd_namespace
   }
 }
+
+resource "kubernetes_manifest" "workflow_eventsource" {
+  count = var.enable_argo_workflows && var.git_repo_url != "" ? 1 : 0
+
+  manifest = {
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "EventSource"
+    metadata = {
+      name      = "${var.namespace_name}-git"
+      namespace = data.kubernetes_namespace.app.metadata[0].name
+    }
+    spec = {
+      service = {
+        ports = [
+          {
+            port       = 12000
+            targetPort = 12000
+          }
+        ]
+      }
+      webhook = {
+        "${var.namespace_name}-push" = {
+          port     = "12000"
+          endpoint = "/${var.namespace_name}"
+          method   = "POST"
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_manifest" "workflow_sensor" {
+  count = var.enable_argo_workflows && var.git_repo_url != "" ? 1 : 0
+
+  manifest = {
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "Sensor"
+    metadata = {
+      name      = "${var.namespace_name}-sensor"
+      namespace = data.kubernetes_namespace.app.metadata[0].name
+    }
+    spec = {
+      template = {
+        serviceAccountName = "argo-workflow"
+      }
+      dependencies = [
+        {
+          name            = "${var.namespace_name}-push"
+          eventSourceName = "${var.namespace_name}-git"
+          eventName       = "${var.namespace_name}-push"
+        }
+      ]
+      triggers = [
+        {
+          template = {
+            name = "trigger-build-${var.namespace_name}"
+            k8s = {
+              operation = "create"
+              source = {
+                resource = {
+                  apiVersion = "argoproj.io/v1alpha1"
+                  kind       = "Workflow"
+                  metadata = {
+                    generateName = "build-${var.namespace_name}-"
+                    namespace    = data.kubernetes_namespace.app.metadata[0].name
+                  }
+                  spec = {
+                    serviceAccountName = "argo-workflow"
+                    workflowTemplateRef = {
+                      name = "kaniko-build"
+                    }
+                    arguments = {
+                      parameters = [
+                        {
+                          name  = "repo-url"
+                          value = var.git_repo_url
+                        },
+                        {
+                          name  = "revision"
+                          value = "main"
+                        },
+                        {
+                          name  = "image-name"
+                          value = var.image_name
+                        },
+                        {
+                          name  = "image-tag"
+                          value = "latest"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+
+  depends_on = [kubernetes_manifest.workflow_eventsource]
+}
+
+resource "kubernetes_service_account" "argo_workflow" {
+  count = var.enable_argo_workflows ? 1 : 0
+
+  metadata {
+    name      = "argo-workflow"
+    namespace = data.kubernetes_namespace.app.metadata[0].name
+  }
+}
+
+resource "kubernetes_role" "argo_workflow" {
+  count = var.enable_argo_workflows ? 1 : 0
+
+  metadata {
+    name      = "argo-workflow-role"
+    namespace = data.kubernetes_namespace.app.metadata[0].name
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods", "pods/log"]
+    verbs      = ["get", "watch", "patch", "list"]
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["secrets"]
+    verbs      = ["get"]
+  }
+
+  rule {
+    api_groups = ["argoproj.io"]
+    resources  = ["workflows", "workflowtemplates"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_role_binding" "argo_workflow" {
+  count = var.enable_argo_workflows ? 1 : 0
+
+  metadata {
+    name      = "argo-workflow-binding"
+    namespace = data.kubernetes_namespace.app.metadata[0].name
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.argo_workflow[0].metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.argo_workflow[0].metadata[0].name
+    namespace = data.kubernetes_namespace.app.metadata[0].name
+  }
+}
+
