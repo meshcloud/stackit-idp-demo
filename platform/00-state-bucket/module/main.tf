@@ -7,6 +7,11 @@ terraform {
   }
 }
 
+provider "stackit" {
+  service_account_key_path = var.stackit_sa_key_path
+  default_region           = var.stackit_region
+}
+
 resource "stackit_objectstorage_bucket" "terraform_state" {
   project_id = var.stackit_project_id
   name       = "tfstate-meshstack-backend"

@@ -11,6 +11,22 @@ This module **MUST** be deployed before any other platform components because:
 
 ## Prerequisites
 
+### Option A: Source from .env file
+
+```bash
+# Copy and customize environment template
+cp ../env.example ../.env
+# Edit .env with real values
+nano ../.env
+
+# Load environment variables
+set -a
+source ../.env
+set +a
+```
+
+### Option B: Manual export
+
 ```bash
 export STACKIT_PROJECT_ID="your-project-id"
 export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
@@ -59,7 +75,32 @@ This module stores its state **locally** in:
 platform/00-state-bucket/terraform.tfstate
 ```
 
-⚠️ **Backup this file!** If lost, you won't be able to manage the bucket via Terraform.
+### ⚠️ Bootstrap State Management
+
+This creates a **bootstrap problem**: 
+- The bucket's state is stored locally (can't use S3 before bucket exists)
+- State file is **NOT committed to git** (security best practice)
+- Each team member must handle state independently
+
+**Options for team collaboration:**
+
+**Option 1: Single owner (recommended for small teams)**
+- One person deploys and manages the state bucket
+- Others never touch this module
+- Outputs are shared via `.env` file
+
+**Option 2: Import existing resources**
+If you need to manage the bucket from a new machine:
+```bash
+terragrunt import stackit_objectstorage_bucket.terraform_state "PROJECT_ID,REGION,BUCKET_NAME"
+terragrunt import stackit_objectstorage_credentials_group.terraform_state "PROJECT_ID,REGION,GROUP_ID"
+terragrunt import stackit_objectstorage_credential.terraform_state "PROJECT_ID,REGION,GROUP_ID,CRED_ID"
+```
+
+**Option 3: Manual creation (production recommended)**
+- Create bucket manually via STACKIT Portal/CLI
+- Never manage with Terraform
+- Document manual setup steps
 
 ## Next Steps
 

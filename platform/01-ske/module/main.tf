@@ -16,17 +16,35 @@ provider "stackit" {
   default_region           = var.stackit_region
 }
 
-module "ske" {
-  source = "../../../demo/terraform/bootstrap/modules/ske-cluster-stackit"
-
-  project_id          = var.stackit_project_id
-  region              = var.stackit_region
-  k8s_version         = var.k8s_version
-  node_count          = var.node_count
-  kubeconfig_out_path = var.kubeconfig_out_path
-
-  providers = {
-    stackit = stackit
-    local   = local
+resource "stackit_ske_cluster" "main" {
+  project_id = var.stackit_project_id
+  name       = var.cluster_name
+  node_pools = [
+    {
+      name               = var.nodepool_name
+      machine_type       = var.machine_type
+      minimum            = var.node_count
+      maximum            = var.node_count
+      availability_zones = var.availability_zones
+      volume_size        = var.volume_size
+      volume_type        = var.volume_type
+    }
+  ]
+  maintenance = {
+    enable_kubernetes_version_updates    = var.enable_kubernetes_version_updates
+    enable_machine_image_version_updates = var.enable_machine_image_version_updates
+    start                                = var.maintenance_start
+    end                                  = var.maintenance_end
   }
+
+  lifecycle {
+    ignore_changes = [kubernetes_version_used, node_pools[0].os_version_used]
+  }
+}
+
+resource "stackit_ske_kubeconfig" "main" {
+  project_id   = var.stackit_project_id
+  cluster_name = stackit_ske_cluster.main.name
+  expiration   = "86400"
+  refresh      = true
 }
