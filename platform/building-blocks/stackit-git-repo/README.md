@@ -5,6 +5,7 @@ Terraform building block for creating and managing Git repositories on STACKIT G
 ## Features
 
 - Creates Git repositories in STACKIT Git (user or organization)
+- **Creates repositories from templates** with variable substitution
 - Configures SSH deploy keys for repository access
 - Sets up webhooks for CI/CD integration (e.g., Argo Workflows)
 - Supports both public and private repositories
@@ -99,6 +100,27 @@ module "team_app_repo" {
 }
 ```
 
+### Repository from Template
+
+```hcl
+module "app_from_template" {
+  source = "./building-blocks/stackit-git-repo"
+
+  gitea_username      = "myusername"
+  gitea_organization  = "my-team"
+  repository_name     = "my-new-app"
+  
+  use_template        = true
+  template_owner      = "stackit"
+  template_name       = "app-template-python"
+  template_variables  = {
+    REPO_NAME  = "my-new-app"
+    NAMESPACE  = "my-namespace"
+    CLONE_URL  = "https://git-service.git.onstackit.cloud/my-team/my-new-app.git"
+  }
+}
+```
+
 ## Variables
 
 | Name | Description | Type | Default | Required |
@@ -115,6 +137,10 @@ module "team_app_repo" {
 | `webhook_url` | Webhook URL for events | string | `""` | no |
 | `webhook_secret` | Webhook authentication secret | string | `""` | no |
 | `webhook_events` | Webhook trigger events | list(string) | `["push", "create"]` | no |
+| `use_template` | Create from template repository | bool | `false` | no |
+| `template_owner` | Template repository owner | string | `"stackit"` | no |
+| `template_name` | Template repository name | string | `"app-template-python"` | no |
+| `template_variables` | Variables for template substitution | map(string) | `{}` | no |
 
 ## Outputs
 
@@ -159,9 +185,31 @@ module "repo" {
 }
 ```
 
+## Template Repositories
+
+Template repositories allow you to create new repositories with pre-configured structure and code. When `use_template = true`:
+
+1. The module uses Gitea's template API to generate a new repository from the template
+2. Files listed in `.gitea/template` in the template repo are processed for variable substitution
+3. Variables like `${REPO_NAME}`, `${NAMESPACE}`, `${CLONE_URL}` are replaced with actual values
+4. The new repository is created with all content from the template
+
+### Creating a Template Repository
+
+1. Create a repository with your desired structure
+2. Add a `.gitea/template` file listing files for variable substitution:
+   ```
+   manifests/base/deployment.yaml
+   manifests/base/kustomization.yaml
+   README.md
+   ```
+3. Use template variables in those files: `${REPO_NAME}`, `${NAMESPACE}`, etc.
+4. Mark the repository as a template in Gitea settings or via API
+
 ## Notes
 
 - STACKIT Git is based on Forgejo (Gitea fork)
 - The Gitea Terraform provider works with Forgejo/STACKIT Git
-- API endpoint: `https://git.api.stackit.cloud`
+- Base URL: `https://git-service.git.onstackit.cloud`
+- Uses HTTPS for git operations
 - Webhooks use Gitea format (compatible with Forgejo)
