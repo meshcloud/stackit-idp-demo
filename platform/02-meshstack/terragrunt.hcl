@@ -8,6 +8,11 @@ terraform {
 
 dependency "ske" {
   config_path = "../01-ske"
+  
+  mock_outputs = {
+    kubeconfig = "mock-kubeconfig-content"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
 }
 
 generate "kubeconfig" {

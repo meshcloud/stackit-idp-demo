@@ -5,6 +5,9 @@ metadata:
   namespace: argo
 spec:
   template:
+    metadata:
+      labels:
+        networking.gardener.cloud/to-dns: allowed
     serviceAccountName: argo-workflow
   dependencies:
     - name: stackit-git-push

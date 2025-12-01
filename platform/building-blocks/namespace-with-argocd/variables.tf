@@ -3,6 +3,12 @@ variable "namespace_name" {
   description = "Name of the namespace to create"
 }
 
+variable "kubeconfig_path" {
+  type        = string
+  description = "Path to kubeconfig file"
+  default     = "~/.kube/config"
+}
+
 variable "tenant_name" {
   type        = string
   description = "meshStack tenant identifier"
@@ -19,60 +25,6 @@ variable "labels" {
   type        = map(string)
   description = "Additional labels for the namespace"
   default     = {}
-}
-
-variable "resource_quota_cpu" {
-  type        = string
-  description = "CPU resource quota"
-  default     = "4"
-}
-
-variable "resource_quota_memory" {
-  type        = string
-  description = "Memory resource quota"
-  default     = "8Gi"
-}
-
-variable "resource_quota_cpu_limit" {
-  type        = string
-  description = "CPU limit quota"
-  default     = "8"
-}
-
-variable "resource_quota_memory_limit" {
-  type        = string
-  description = "Memory limit quota"
-  default     = "16Gi"
-}
-
-variable "resource_quota_pods" {
-  type        = string
-  description = "Maximum number of pods"
-  default     = "20"
-}
-
-variable "container_request_cpu" {
-  type        = string
-  description = "Default CPU request for containers"
-  default     = "100m"
-}
-
-variable "container_request_memory" {
-  type        = string
-  description = "Default memory request for containers"
-  default     = "128Mi"
-}
-
-variable "container_limit_cpu" {
-  type        = string
-  description = "Default CPU limit for containers"
-  default     = "500m"
-}
-
-variable "container_limit_memory" {
-  type        = string
-  description = "Default memory limit for containers"
-  default     = "512Mi"
 }
 
 variable "harbor_url" {
@@ -95,19 +47,19 @@ variable "harbor_robot_token" {
   sensitive   = true
 }
 
-variable "github_repo_url" {
+variable "git_repo_url" {
   type        = string
-  description = "GitHub repository URL for ArgoCD"
+  description = "Git repository URL for ArgoCD and Argo Workflows"
   default     = ""
 }
 
-variable "github_target_revision" {
+variable "git_target_revision" {
   type        = string
   description = "Git branch/tag/commit to track"
   default     = "main"
 }
 
-variable "github_manifests_path" {
+variable "git_manifests_path" {
   type        = string
   description = "Path to manifests in the repo"
   default     = "manifests/overlays/dev"
@@ -137,12 +89,6 @@ variable "argo_workflows_namespace" {
   default     = "argo-workflows"
 }
 
-variable "git_repo_url" {
-  type        = string
-  description = "Git repository URL for Argo Workflows (e.g., STACKIT Git)"
-  default     = ""
-}
-
 variable "image_name" {
   type        = string
   description = "Full image name for builds (e.g., harbor.example.com/project/app)"
@@ -153,4 +99,55 @@ variable "git_ssh_secret_name" {
   type        = string
   description = "Name of the secret containing SSH private key for git"
   default     = "git-ssh-key"
+}
+
+variable "git_ssh_private_key" {
+  type        = string
+  description = "SSH private key for git access (required for private repos)"
+  default     = ""
+  sensitive   = true
+}
+
+variable "git_ssh_known_hosts" {
+  type        = string
+  description = "SSH known hosts for git server"
+  default     = ""
+}
+
+variable "gitea_username" {
+  type        = string
+  description = "Gitea username for HTTPS authentication"
+  default     = ""
+  sensitive   = true
+}
+
+variable "gitea_token" {
+  type        = string
+  description = "Gitea API token for HTTPS authentication"
+  default     = ""
+  sensitive   = true
+}
+
+variable "expose_app_externally" {
+  type        = bool
+  description = "Expose the application externally via LoadBalancer"
+  default     = false
+}
+
+variable "external_port" {
+  type        = number
+  description = "External port for LoadBalancer service (must be unique across cluster)"
+  default     = 8080
+}
+
+variable "app_selector_labels" {
+  type        = map(string)
+  description = "Labels to select the application pods"
+  default     = {}
+}
+
+variable "app_target_port" {
+  type        = number
+  description = "Target port on the application pods"
+  default     = 8000
 }

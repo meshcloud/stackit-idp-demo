@@ -4,6 +4,10 @@ metadata:
   name: stackit-git
   namespace: argo
 spec:
+  template:
+    metadata:
+      labels:
+        networking.gardener.cloud/to-dns: allowed
   service:
     ports:
       - port: 12000
