@@ -7,7 +7,7 @@ output "namespace_labels" {
 }
 
 output "argocd_application_name" {
-  value = var.git_repo_url != "" ? var.namespace_name : ""
+  value = var.namespace_name
 }
 
 output "harbor_pull_secret_name" {

@@ -30,7 +30,10 @@ variable "project_name" {
 variable "labels" {
   type        = map(string)
   description = "Additional labels for the namespace"
-  default     = {}
+  default     = {
+    environment = "dev"
+    managed-by  = "terraform"
+  }
 }
 
 variable "harbor_url" {
@@ -51,12 +54,6 @@ variable "harbor_robot_token" {
   description = "Harbor robot account token"
   default     = ""
   sensitive   = true
-}
-
-variable "git_repo_url" {
-  type        = string
-  description = "Git repository URL for ArgoCD and Argo Workflows"
-  default     = ""
 }
 
 variable "git_target_revision" {
@@ -95,12 +92,6 @@ variable "argo_workflows_namespace" {
   default     = "argo-workflows"
 }
 
-variable "image_name" {
-  type        = string
-  description = "Full image name for builds (e.g., harbor.example.com/project/app)"
-  default     = ""
-}
-
 variable "gitea_username" {
   type        = string
   description = "Gitea username for HTTPS authentication"
@@ -125,12 +116,6 @@ variable "external_port" {
   type        = number
   description = "External port for LoadBalancer service (must be unique across cluster)"
   default     = 8080
-}
-
-variable "app_selector_labels" {
-  type        = map(string)
-  description = "Labels to select the application pods"
-  default     = {}
 }
 
 variable "app_target_port" {

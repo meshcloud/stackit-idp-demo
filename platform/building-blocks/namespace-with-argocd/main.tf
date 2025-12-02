@@ -17,11 +17,11 @@ provider "kubernetes" {
 
 locals {
   app_name     = var.app_name != "" ? var.app_name : var.namespace_name
-  git_repo_url = var.git_repo_url != "" ? var.git_repo_url : "https://git-service.git.onstackit.cloud/${var.gitea_username}/${local.app_name}.git"
-  image_name   = var.image_name != "" ? var.image_name : "${var.harbor_url}/registry/${local.app_name}"
+  git_repo_url = "https://git-service.git.onstackit.cloud/${var.gitea_username}/${local.app_name}.git"
+  image_name   = "${var.harbor_url}/registry/${local.app_name}"
   tenant_name  = var.tenant_name != "" ? var.tenant_name : local.app_name
   project_name = var.project_name != "" ? var.project_name : local.app_name
-  app_selector_labels = length(var.app_selector_labels) > 0 ? var.app_selector_labels : {
+  app_selector_labels = {
     "app.kubernetes.io/name" = local.app_name
   }
 }
