@@ -9,7 +9,7 @@ terraform {
 inputs = {
   cluster_name                         = "ske-demo"
   k8s_version                          = "1.33.5"
-  node_count                           = 2
+  node_count                           = 3
   nodepool_name                        = "np1"
   machine_type                         = "c2i.2"
   availability_zones                   = ["eu01-1"]
