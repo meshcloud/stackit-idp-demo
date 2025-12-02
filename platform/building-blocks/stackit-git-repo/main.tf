@@ -15,7 +15,7 @@ provider "gitea" {
 resource "gitea_repository" "repo" {
   count = var.use_template ? 0 : 1
 
-  username       = var.gitea_organization != "" ? var.gitea_organization : var.gitea_username
+  username       = var.gitea_organization
   name           = var.repository_name
   description    = var.repository_description
   private        = var.repository_private
@@ -23,15 +23,29 @@ resource "gitea_repository" "repo" {
   default_branch = var.default_branch
 }
 
+locals {
+  owner = var.gitea_organization
+  template_variables = {
+    REPO_NAME = var.template_repo_name
+    NAMESPACE = var.template_namespace
+    CLONE_URL = "${var.gitea_base_url}/${local.owner}/${var.repository_name}.git"
+  }
+  repo_id        = var.use_template ? "${local.owner}/${var.repository_name}" : gitea_repository.repo[0].id
+  repo_name      = var.repository_name
+  repo_html_url  = var.use_template ? "${var.gitea_base_url}/${local.owner}/${var.repository_name}" : gitea_repository.repo[0].html_url
+  repo_ssh_url   = var.use_template ? "git@${replace(var.gitea_base_url, "https://", "")}:${local.owner}/${var.repository_name}.git" : gitea_repository.repo[0].ssh_url
+  repo_clone_url = var.use_template ? "${var.gitea_base_url}/${local.owner}/${var.repository_name}.git" : gitea_repository.repo[0].clone_url
+}
+
 resource "null_resource" "template_repo" {
   count = var.use_template ? 1 : 0
 
   triggers = {
-    repo_name        = var.repository_name
-    template_owner   = var.template_owner
-    template_name    = var.template_name
-    template_vars    = jsonencode(var.template_variables)
-    owner           = var.gitea_organization != "" ? var.gitea_organization : var.gitea_username
+    repo_name      = var.repository_name
+    template_owner = var.template_owner
+    template_name  = var.template_name
+    template_vars  = jsonencode(local.template_variables)
+    owner          = local.owner
   }
 
   provisioner "local-exec" {
@@ -40,7 +54,7 @@ resource "null_resource" "template_repo" {
         -H "Authorization: token ${var.gitea_token}" \
         -H "Content-Type: application/json" \
         -d '{
-          "owner": "${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}",
+          "owner": "${local.owner}",
           "name": "${var.repository_name}",
           "description": "${var.repository_description}",
           "private": ${var.repository_private},
@@ -63,14 +77,6 @@ resource "null_resource" "template_repo" {
   }
 }
 
-locals {
-  repo_id        = var.use_template ? "${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}/${var.repository_name}" : gitea_repository.repo[0].id
-  repo_name      = var.repository_name
-  repo_html_url  = var.use_template ? "${var.gitea_base_url}/${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}/${var.repository_name}" : gitea_repository.repo[0].html_url
-  repo_ssh_url   = var.use_template ? "git@${replace(var.gitea_base_url, "https://", "")}:${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}/${var.repository_name}.git" : gitea_repository.repo[0].ssh_url
-  repo_clone_url = var.use_template ? "${var.gitea_base_url}/${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}/${var.repository_name}.git" : gitea_repository.repo[0].clone_url
-}
-
 resource "null_resource" "webhook" {
   count = var.webhook_url != "" ? 1 : 0
 
@@ -83,7 +89,7 @@ resource "null_resource" "webhook" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      curl -X POST "${var.gitea_base_url}/api/v1/repos/${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}/${var.repository_name}/hooks" \
+      curl -X POST "${var.gitea_base_url}/api/v1/repos/${local.owner}/${var.repository_name}/hooks" \
         -H "Authorization: token ${var.gitea_token}" \
         -H "Content-Type: application/json" \
         -d '{

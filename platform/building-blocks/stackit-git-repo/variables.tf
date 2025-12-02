@@ -87,8 +87,14 @@ variable "template_name" {
   default     = "app-template-python"
 }
 
-variable "template_variables" {
-  type        = map(string)
-  description = "Variables to substitute in template files (e.g., REPO_NAME, NAMESPACE)"
-  default     = {}
+variable "template_repo_name" {
+  type        = string
+  description = "REPO_NAME variable for template substitution"
+  default     = ""
+}
+
+variable "template_namespace" {
+  type        = string
+  description = "NAMESPACE variable for template substitution"
+  default     = ""
 }
