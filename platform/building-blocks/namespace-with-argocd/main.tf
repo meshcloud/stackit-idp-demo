@@ -2,7 +2,7 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = ">= 2.20"
+      version = "2.38.0"
     }
     null = {
       source  = "hashicorp/null"
@@ -16,11 +16,11 @@ provider "kubernetes" {
 }
 
 locals {
-  app_name         = var.app_name != "" ? var.app_name : var.namespace_name
-  git_repo_url     = var.git_repo_url != "" ? var.git_repo_url : "https://git-service.git.onstackit.cloud/${var.gitea_username}/${local.app_name}.git"
-  image_name       = var.image_name != "" ? var.image_name : "${var.harbor_url}/registry/${local.app_name}"
-  tenant_name      = var.tenant_name != "" ? var.tenant_name : local.app_name
-  project_name     = var.project_name != "" ? var.project_name : local.app_name
+  app_name     = var.app_name != "" ? var.app_name : var.namespace_name
+  git_repo_url = var.git_repo_url != "" ? var.git_repo_url : "https://git-service.git.onstackit.cloud/${var.gitea_username}/${local.app_name}.git"
+  image_name   = var.image_name != "" ? var.image_name : "${var.harbor_url}/registry/${local.app_name}"
+  tenant_name  = var.tenant_name != "" ? var.tenant_name : local.app_name
+  project_name = var.project_name != "" ? var.project_name : local.app_name
   app_selector_labels = length(var.app_selector_labels) > 0 ? var.app_selector_labels : {
     "app.kubernetes.io/name" = local.app_name
   }
@@ -120,6 +120,11 @@ resource "kubernetes_manifest" "argocd_application" {
         "meshstack.io/tenant"  = local.tenant_name
         "meshstack.io/project" = local.project_name
       }
+      annotations = {
+        "argocd-image-updater.argoproj.io/image-list"          = "app=${local.image_name}"
+        "argocd-image-updater.argoproj.io/app.update-strategy" = "newest-build"
+        "argocd-image-updater.argoproj.io/write-back-method"   = "argocd"
+      }
       finalizers = [
         "resources-finalizer.argocd.argoproj.io"
       ]
@@ -183,6 +188,15 @@ resource "kubernetes_role_binding" "app_deployer" {
 resource "kubernetes_manifest" "eventbus" {
   count = var.enable_argo_workflows ? 1 : 0
 
+  field_manager {
+    force_conflicts = true
+  }
+
+  computed_fields = [
+    "spec.jetstream.initContainerTemplate",
+    "spec.jetstream.reloadContainerTemplate"
+  ]
+
   manifest = {
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "EventBus"
@@ -192,8 +206,9 @@ resource "kubernetes_manifest" "eventbus" {
     }
     spec = {
       jetstream = {
-        version  = "latest"
-        replicas = 1
+        version      = "latest"
+        replicas     = 1
+        encryption   = false
         streamConfig = <<-EOT
           duplicates: 300s
           maxage: 72h
@@ -254,155 +269,178 @@ resource "kubernetes_manifest" "eventbus" {
   }
 }
 
-resource "null_resource" "eventbus_status_patch" {
+resource "kubernetes_limit_range" "default_limits" {
   count = var.enable_argo_workflows ? 1 : 0
 
-  triggers = {
-    eventbus_id = kubernetes_manifest.eventbus[0].manifest.metadata.namespace
-    replicas    = 1
+  metadata {
+    name      = "default-container-limits"
+    namespace = data.kubernetes_namespace.app.metadata[0].name
   }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      export KUBECONFIG="${var.kubeconfig_path}"
-      
-      echo "Waiting for EventBus to be created..."
-      kubectl wait --for=condition=Deployed eventbus/default -n ${data.kubernetes_namespace.app.metadata[0].name} --timeout=120s || true
-      
-      echo "Patching EventBus status with replicas and streamConfig..."
-      kubectl patch eventbus default -n ${data.kubernetes_namespace.app.metadata[0].name} --subresource=status --type=merge -p '{"status":{"config":{"jetstream":{"replicas":1,"streamConfig":"duplicates: 300s\nmaxage: 72h\nmaxbytes: 1GB\nmaxmsgs: 1000000\nreplicas: 1\n"}}}}'
-      
-      echo "Waiting for StatefulSet to be created by EventBus controller..."
-      sleep 5
-      
-      echo "Patching StatefulSet to add reloader container resources (Argo Events controller bug workaround)..."
-      kubectl patch statefulset eventbus-default-js -n ${data.kubernetes_namespace.app.metadata[0].name} --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/1/resources", "value": {"limits": {"cpu": "100m", "memory": "128Mi"}, "requests": {"cpu": "50m", "memory": "64Mi"}}}]' || true
-      
-      echo "EventBus configuration completed"
-    EOT
+  spec {
+    limit {
+      type = "Container"
+      default = {
+        cpu    = "100m"
+        memory = "128Mi"
+      }
+      default_request = {
+        cpu    = "50m"
+        memory = "64Mi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_manifest" "workflow_eventsource" {
+  count = var.enable_argo_workflows && local.git_repo_url != "" ? 1 : 0
+
+  field_manager {
+    force_conflicts = true
+  }
+
+  computed_fields = ["spec.template.container.name"]
+
+  manifest = {
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "EventSource"
+    metadata = {
+      name      = "${var.namespace_name}-git"
+      namespace = var.namespace_name
+    }
+    spec = {
+      eventBusName = "default"
+      template = {
+        metadata = {
+          labels = {
+            "networking.gardener.cloud/to-dns" = "allowed"
+          }
+        }
+        container = {
+          resources = {
+            requests = {
+              cpu    = "50m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "100m"
+              memory = "128Mi"
+            }
+          }
+        }
+      }
+      service = {
+        ports = [
+          {
+            port       = 12000
+            targetPort = 12000
+          }
+        ]
+      }
+      webhook = {
+        "${var.namespace_name}" = {
+          port     = "12000"
+          endpoint = "/${var.namespace_name}"
+          method   = "POST"
+        }
+      }
+    }
   }
 
   depends_on = [kubernetes_manifest.eventbus]
 }
 
-resource "null_resource" "workflow_eventsource" {
+resource "kubernetes_manifest" "workflow_sensor" {
   count = var.enable_argo_workflows && local.git_repo_url != "" ? 1 : 0
 
-  triggers = {
-    namespace = var.namespace_name
+  field_manager {
+    force_conflicts = true
   }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      export KUBECONFIG="${var.kubeconfig_path}"
-      kubectl apply --server-side --force-conflicts -f - <<EOF
-apiVersion: argoproj.io/v1alpha1
-kind: EventSource
-metadata:
-  name: ${var.namespace_name}-git
-  namespace: ${var.namespace_name}
-spec:
-  eventBusName: default
-  template:
-    metadata:
-      labels:
-        networking.gardener.cloud/to-dns: allowed
-    container:
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 100m
-          memory: 128Mi
-  service:
-    ports:
-      - port: 12000
-        targetPort: 12000
-  webhook:
-    ${var.namespace_name}:
-      port: "12000"
-      endpoint: /${var.namespace_name}
-      method: POST
-EOF
-    EOT
+  computed_fields = ["spec.template.container.name"]
+
+  manifest = {
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "Sensor"
+    metadata = {
+      name      = "${var.namespace_name}-sensor"
+      namespace = var.namespace_name
+    }
+    spec = {
+      eventBusName = "default"
+      template = {
+        metadata = {
+          labels = {
+            "networking.gardener.cloud/to-dns" = "allowed"
+          }
+        }
+        container = {
+          resources = {
+            requests = {
+              cpu    = "50m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "100m"
+              memory = "128Mi"
+            }
+          }
+        }
+        serviceAccountName = "argo-workflow"
+      }
+      dependencies = [
+        {
+          name            = var.namespace_name
+          eventSourceName = "${var.namespace_name}-git"
+          eventName       = var.namespace_name
+        }
+      ]
+      triggers = [
+        {
+          template = {
+            name = "trigger-build-${var.namespace_name}"
+            k8s = {
+              operation = "create"
+              source = {
+                resource = {
+                  apiVersion = "argoproj.io/v1alpha1"
+                  kind       = "Workflow"
+                  metadata = {
+                    generateName = "build-${var.namespace_name}-"
+                    namespace    = var.namespace_name
+                  }
+                  spec = {
+                    serviceAccountName = "argo-workflow"
+                    workflowTemplateRef = {
+                      name = "kaniko-build"
+                    }
+                    arguments = {
+                      parameters = [
+                        {
+                          name  = "repo-url"
+                          value = local.git_repo_url
+                        },
+                        {
+                          name  = "revision"
+                          value = "main"
+                        },
+                        {
+                          name  = "image-name"
+                          value = local.image_name
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
   }
 
-  depends_on = [kubernetes_manifest.eventbus]
-}
-
-resource "null_resource" "workflow_sensor" {
-  count = var.enable_argo_workflows && local.git_repo_url != "" ? 1 : 0
-
-  triggers = {
-    namespace    = var.namespace_name
-    git_repo_url = local.git_repo_url
-    image_name   = local.image_name
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      kubectl apply --server-side --force-conflicts -f - <<EOF
-apiVersion: argoproj.io/v1alpha1
-kind: Sensor
-metadata:
-  name: ${var.namespace_name}-sensor
-  namespace: ${var.namespace_name}
-spec:
-  eventBusName: default
-  template:
-    metadata:
-      labels:
-        networking.gardener.cloud/to-dns: allowed
-    container:
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 100m
-          memory: 128Mi
-    serviceAccountName: argo-workflow
-  dependencies:
-    - name: ${var.namespace_name}
-      eventSourceName: ${var.namespace_name}-git
-      eventName: ${var.namespace_name}
-  triggers:
-    - template:
-        name: trigger-build-${var.namespace_name}
-        k8s:
-          operation: create
-          source:
-            resource:
-              apiVersion: argoproj.io/v1alpha1
-              kind: Workflow
-              metadata:
-                generateName: build-${var.namespace_name}-
-                namespace: ${var.namespace_name}
-              spec:
-                serviceAccountName: argo-workflow
-                workflowTemplateRef:
-                  name: kaniko-build
-                arguments:
-                  parameters:
-                    - name: repo-url
-                      value: ${local.git_repo_url}
-                    - name: revision
-                      value: main
-                    - name: image-name
-                      value: ${local.image_name}
-                    - name: image-tag
-                      value: latest
-EOF
-    EOT
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "kubectl delete sensor ${self.triggers.namespace}-sensor -n ${self.triggers.namespace} --ignore-not-found=true"
-  }
-
-  depends_on = [null_resource.workflow_eventsource, kubernetes_manifest.eventbus]
+  depends_on = [kubernetes_manifest.workflow_eventsource, kubernetes_manifest.eventbus]
 }
 
 resource "kubernetes_manifest" "kaniko_workflow_template" {
@@ -442,8 +480,8 @@ resource "kubernetes_manifest" "kaniko_workflow_template" {
             value = local.image_name
           },
           {
-            name  = "image-tag"
-            value = "latest"
+            name  = "git-sha"
+            value = ""
           },
           {
             name  = "dockerfile-path"
@@ -484,6 +522,14 @@ resource "kubernetes_manifest" "kaniko_workflow_template" {
               {
                 name     = "build"
                 template = "kaniko-build"
+                arguments = {
+                  parameters = [
+                    {
+                      name  = "git-sha"
+                      value = "{{steps.clone.outputs.parameters.git-sha}}"
+                    }
+                  ]
+                }
               }
             ]
           ]
@@ -510,11 +556,21 @@ resource "kubernetes_manifest" "kaniko_workflow_template" {
               }
             ]
           }
+          outputs = {
+            parameters = [
+              {
+                name = "git-sha"
+                valueFrom = {
+                  path = "/tmp/git-tag"
+                }
+              }
+            ]
+          }
           container = {
             image   = "alpine/git:latest"
             command = ["sh", "-c"]
             args = [
-              "echo 'Repository cloned successfully' && ls -la /workspace"
+              "cd /workspace && TAG=$(git describe --tags --exact-match 2>/dev/null || echo \"\") && if [ -n \"$TAG\" ]; then echo \"$TAG\" > /tmp/git-tag; else git rev-parse --short HEAD > /tmp/git-tag; fi && echo \"Using tag: $(cat /tmp/git-tag)\" && ls -la /workspace"
             ]
             resources = {
               requests = {
@@ -531,6 +587,11 @@ resource "kubernetes_manifest" "kaniko_workflow_template" {
         {
           name = "kaniko-build"
           inputs = {
+            parameters = [
+              {
+                name = "git-sha"
+              }
+            ]
             artifacts = [
               {
                 name = "source-code"
@@ -556,7 +617,7 @@ resource "kubernetes_manifest" "kaniko_workflow_template" {
             args = [
               "--dockerfile={{workflow.parameters.dockerfile-path}}",
               "--context=/workspace/{{workflow.parameters.context-path}}",
-              "--destination={{workflow.parameters.image-name}}:{{workflow.parameters.image-tag}}",
+              "--destination={{workflow.parameters.image-name}}:{{inputs.parameters.git-sha}}",
               "--cache=true",
               "--cache-ttl=24h"
             ]
@@ -648,34 +709,6 @@ resource "kubernetes_role_binding" "argo_workflow" {
   }
 }
 
-data "kubernetes_service" "existing_loadbalancers" {
-  count = var.expose_app_externally ? 1 : 0
-
-  metadata {
-    name      = "check-port-${var.external_port}"
-    namespace = "default"
-  }
-}
-
-resource "null_resource" "check_port_availability" {
-  count = var.expose_app_externally ? 1 : 0
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      export KUBECONFIG="${var.kubeconfig_path}"
-      
-      # Check if any LoadBalancer service is using this port
-      USED_PORTS=$(kubectl get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | .spec.ports[].port')
-      
-      if echo "$USED_PORTS" | grep -q "^${var.external_port}$"; then
-        echo "ERROR: Port ${var.external_port} is already in use by another LoadBalancer service"
-        exit 1
-      fi
-      
-      echo "Port ${var.external_port} is available"
-    EOT
-  }
-}
 
 resource "kubernetes_service" "app_external" {
   count = var.expose_app_externally && length(local.app_selector_labels) > 0 ? 1 : 0
@@ -700,8 +733,6 @@ resource "kubernetes_service" "app_external" {
       protocol    = "TCP"
     }
   }
-
-  depends_on = [null_resource.check_port_availability]
 }
 
 resource "kubernetes_service" "eventsource_external" {
@@ -729,5 +760,5 @@ resource "kubernetes_service" "eventsource_external" {
     }
   }
 
-  depends_on = [null_resource.workflow_eventsource]
+  depends_on = [kubernetes_manifest.workflow_eventsource]
 }

@@ -74,6 +74,45 @@ resource "helm_release" "argocd" {
   ]
 }
 
+resource "kubernetes_secret" "harbor_registry_creds" {
+  metadata {
+    name      = "harbor-registry-creds"
+    namespace = kubernetes_namespace.argocd.metadata[0].name
+  }
+
+  type = "Opaque"
+
+  data = {
+    creds = "${var.harbor_robot_username}:${var.harbor_robot_token}"
+  }
+}
+
+resource "helm_release" "argocd_image_updater" {
+  name       = "argocd-image-updater"
+  repository = "https://argoproj.github.io/argo-helm"
+  chart      = "argocd-image-updater"
+  version    = "0.11.0"
+  namespace  = kubernetes_namespace.argocd.metadata[0].name
+
+  values = [
+    yamlencode({
+      config = {
+        registries = [
+          {
+            name        = "harbor"
+            api_url     = "https://${var.harbor_url}"
+            prefix      = var.harbor_url
+            credentials = "secret:argocd/harbor-registry-creds#creds"
+            insecure    = false
+          }
+        ]
+      }
+    })
+  ]
+
+  depends_on = [helm_release.argocd, kubernetes_secret.harbor_registry_creds]
+}
+
 resource "kubernetes_service_account" "platform_terraform" {
   metadata {
     name      = "platform-terraform"
@@ -152,7 +191,7 @@ data "kubernetes_secret" "platform_terraform_token" {
     name      = kubernetes_secret.platform_terraform_token.metadata[0].name
     namespace = kubernetes_namespace.argocd.metadata[0].name
   }
-  
+
   depends_on = [kubernetes_secret.platform_terraform_token]
 }
 
