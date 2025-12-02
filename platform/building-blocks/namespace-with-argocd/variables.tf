@@ -1,3 +1,9 @@
+variable "app_name" {
+  type        = string
+  description = "Application name (used to derive git_repo_url, image_name, tenant_name, project_name if not specified)"
+  default     = ""
+}
+
 variable "namespace_name" {
   type        = string
   description = "Name of the namespace to create"
@@ -92,25 +98,6 @@ variable "argo_workflows_namespace" {
 variable "image_name" {
   type        = string
   description = "Full image name for builds (e.g., harbor.example.com/project/app)"
-  default     = ""
-}
-
-variable "git_ssh_secret_name" {
-  type        = string
-  description = "Name of the secret containing SSH private key for git"
-  default     = "git-ssh-key"
-}
-
-variable "git_ssh_private_key" {
-  type        = string
-  description = "SSH private key for git access (required for private repos)"
-  default     = ""
-  sensitive   = true
-}
-
-variable "git_ssh_known_hosts" {
-  type        = string
-  description = "SSH known hosts for git server"
   default     = ""
 }
 

@@ -22,8 +22,3 @@ output "repository_clone_url" {
   value       = local.repo_clone_url
   description = "HTTPS clone URL"
 }
-
-output "deploy_key_id" {
-  value       = length(gitea_repository_key.deploy_key) > 0 ? gitea_repository_key.deploy_key[0].id : null
-  description = "The ID of the deploy key (if created)"
-}

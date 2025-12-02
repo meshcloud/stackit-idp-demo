@@ -71,17 +71,6 @@ locals {
   repo_clone_url = var.use_template ? "${var.gitea_base_url}/${var.gitea_organization != "" ? var.gitea_organization : var.gitea_username}/${var.repository_name}.git" : gitea_repository.repo[0].clone_url
 }
 
-resource "gitea_repository_key" "deploy_key" {
-  count = var.deploy_key_public != "" ? 1 : 0
-
-  repository = local.repo_id
-  title      = "${var.repository_name}-deploy-key"
-  key        = var.deploy_key_public
-  read_only  = var.deploy_key_readonly
-
-  depends_on = [gitea_repository.repo, null_resource.template_repo]
-}
-
 resource "null_resource" "webhook" {
   count = var.webhook_url != "" ? 1 : 0
 

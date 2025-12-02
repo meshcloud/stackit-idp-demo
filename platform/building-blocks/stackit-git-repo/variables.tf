@@ -38,18 +38,6 @@ variable "default_branch" {
   default     = "main"
 }
 
-variable "deploy_key_public" {
-  type        = string
-  description = "SSH public key for deploy access (optional)"
-  default     = ""
-}
-
-variable "deploy_key_readonly" {
-  type        = bool
-  description = "Whether the deploy key should be read-only"
-  default     = false
-}
-
 variable "gitea_base_url" {
   type        = string
   description = "STACKIT Git base URL"
