@@ -32,6 +32,11 @@ async def index():
     return FileResponse("static/index.html")
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/summarize")
 async def summarize(req: SummarizeRequest):
     """
