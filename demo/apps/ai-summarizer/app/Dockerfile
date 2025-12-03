@@ -1,8 +1,8 @@
 # ========================================================================
-# demo/apps/ai-summarizer/Dockerfile
+# demo/apps/ai-summarizer/app/Dockerfile
 # ========================================================================
 # Simple Dockerfile for the AI summarizer demo app.
-# Expects the working directory to contain app/, static/ and requirements.txt.
+# Build from the app/ directory.
 
 FROM python:3.12-slim
 
