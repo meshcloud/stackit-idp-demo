@@ -45,6 +45,13 @@ resource "stackit_ske_cluster" "main" {
 resource "stackit_ske_kubeconfig" "main" {
   project_id   = var.stackit_project_id
   cluster_name = stackit_ske_cluster.main.name
-  expiration   = "86400"
+  expiration   = "15552000"
+  refresh      = true
+}
+
+resource "stackit_ske_kubeconfig" "ops_team" {
+  project_id   = var.stackit_project_id
+  cluster_name = stackit_ske_cluster.main.name
+  expiration   = "15552000"
   refresh      = true
 }

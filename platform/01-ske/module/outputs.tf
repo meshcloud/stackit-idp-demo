@@ -11,6 +11,11 @@ output "kubeconfig" {
   sensitive = true
 }
 
+output "kubeconfig_ops_team" {
+  value     = stackit_ske_kubeconfig.ops_team.kube_config
+  sensitive = true
+}
+
 output "kube_host" {
   value     = yamldecode(stackit_ske_kubeconfig.main.kube_config)["clusters"][0]["cluster"]["server"]
   sensitive = true
