@@ -1,9 +1,12 @@
 remote_state {
   backend = "s3"
   
+  # Skip remote state for 00-state-bucket bootstrap module
+  # It uses local state to avoid chicken-and-egg problem
   generate = {
     path      = "backend.tf"
     if_exists = "overwrite_terragrunt"
+    if        = !strcontains(get_terragrunt_dir(), "/00-state-bucket")
   }
   
   config = {

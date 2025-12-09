@@ -1,97 +1,48 @@
 # Platform Deployment Guide
 
-Step-by-step guide to deploy the STACKIT IDP platform.
+Complete step-by-step guide to deploy the STACKIT IDP platform.
 
-## Phase 0: Create State Bucket (Deploy First!)
+## ⚠️ Important: Bootstrap First
 
-⚠️ **This MUST be deployed before anything else** - it creates the S3 bucket where all other modules store their state.
+You **MUST** complete **Phase 0** before deploying any other components. Phase 0 creates the S3 bucket where all subsequent modules store their Terraform state.
 
-### Option A: Source from .env file
+---
 
-```bash
-cd platform/00-state-bucket
+## Phase 0: State Bucket Access
 
-# Copy and customize environment template
-cp ../env.example ../.env
-# Edit .env with real values (STACKIT_PROJECT_ID, STACKIT_SERVICE_ACCOUNT_KEY_PATH, etc.)
-nano ../.env
+**→ Read `platform/00-state-bucket/SETUP_GUIDE.md` and follow it completely.**
 
-# Load environment variables
-set -a
-source ../.env
-set +a
+This phase ensures you can access the state bucket. Choose ONE of three scenarios:
 
-terragrunt init
-terragrunt apply
-```
+1. **Scenario 1 (Greenfield)**: Creating a new state bucket from scratch
+2. **Scenario 2 (Brownfield with Credentials)**: Connecting to existing bucket using S3 credentials
+3. **Scenario 3 (Brownfield Auto-Generate)**: Generating new S3 credentials using STACKIT access
 
-### Option B: Manual export
+**Quick Decision:**
+- New platform? → Scenario 1
+- Platform exists + have S3 credentials? → Scenario 2
+- Platform exists + only have STACKIT credentials? → Scenario 3
 
-```bash
-cd platform/00-state-bucket
+After completing Phase 0, you should have `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in your `.env`.
 
-export STACKIT_PROJECT_ID="your-project-id"
-export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+Then proceed to Phase 1 below.
 
-terragrunt init
-terragrunt apply
-```
-
-**Save the credentials:**
-```bash
-export AWS_ACCESS_KEY_ID=$(terragrunt output -raw access_key_id)
-export AWS_SECRET_ACCESS_KEY=$(terragrunt output -raw secret_access_key)
-
-# Add to env.example for future use
-echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> ../env.example
-echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> ../env.example
-```
-
-This creates:
-- ✅ S3 bucket: `tfstate-meshstack-backend`
-- ✅ Access credentials for Terraform state storage
-- ✅ Endpoint: `https://object.storage.eu01.onstackit.cloud`
-
-See `00-state-bucket/README.md` for details.
+---
 
 ## Phase 1: Deploy Platform Components
 
-### Step 1: Configure Environment
+After Phase 0 is complete, you have the S3 bucket and credentials. Now deploy the platform.
 
-**Option A: Source from .env file** (recommended):
+### Step 1: Ensure .env is fully configured
 
-```bash
-# If you haven't already created .env in Phase 0:
-cp env.example .env
-# Edit .env with all credentials (STACKIT, S3 from Phase 0, Harbor, ArgoCD)
-nano .env
-
-# Load environment variables
-set -a
-source .env
-set +a
-```
-
-**Option B: Manual export**:
+Your `.env` must have all credentials from Phase 0:
 
 ```bash
-# STACKIT
-export STACKIT_PROJECT_ID="your-project-id"
-export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
-
-# S3 (from Phase 0 outputs)
-export AWS_ACCESS_KEY_ID="your-access-key-from-phase-0"
-export AWS_SECRET_ACCESS_KEY="your-secret-key-from-phase-0"
-
-# Harbor
-export HARBOR_USERNAME="admin"
-export HARBOR_CLI_SECRET="your-harbor-password"
-```
-
-Generate ArgoCD admin password (bcrypt):
-```bash
-htpasswd -nbBC 10 admin YourPassword | cut -d: -f2
-export ARGOCD_ADMIN_PASSWORD_BCRYPT="generated-hash"
+# In platform/.env should now be:
+STACKIT_PROJECT_ID="272f2ba5-fa0a-4b8b-8ceb-e68165a87914"
+STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+AWS_ACCESS_KEY_ID="<from-phase-0>"
+AWS_SECRET_ACCESS_KEY="<from-phase-0>"
 ```
 
 ### Step 2: Deploy SKE Cluster

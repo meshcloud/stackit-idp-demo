@@ -1,22 +1,22 @@
 include "root" {
-  path           = find_in_parent_folders("root.hcl") # Add filename explicitly
+  path           = find_in_parent_folders("root.hcl")
   merge_strategy = "deep"
 }
 
 # this is only used to create the bucket initial
-# 
-# remote_state {
-#   backend = "local"
+# use local state to bootstrap the bucket and credentials
+remote_state {
+  backend = "local"
 
-#   config = {
-#     path = "${get_terragrunt_dir()}/terraform.tfstate"
-#   }
+  config = {
+    path = "${get_terragrunt_dir()}/terraform.tfstate"
+  }
 
-#   generate = {
-#     path      = "backend.tf"
-#     if_exists = "overwrite"
-#   }
-# }
+  generate = {
+    path      = "backend.tf"
+    if_exists = "overwrite"
+  }
+}
 
 terraform {
   source = "./module"

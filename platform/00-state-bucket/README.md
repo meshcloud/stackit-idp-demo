@@ -1,103 +1,101 @@
 # State Bucket Module
 
-This module creates the S3-compatible STACKIT Object Storage bucket that stores Terraform state for all other platform modules.
+This module creates or connects to the S3-compatible STACKIT Object Storage bucket that stores Terraform state for all platform modules.
 
-## ⚠️ Important: Deploy This First
+## Quick Start
 
-This module **MUST** be deployed before any other platform components because:
-- It creates the `tfstate-meshstack-backend` bucket
-- All other modules (01-ske, 02-harbor, etc.) store their state in this bucket
-- This module uses **local state** (not remote S3 state)
+**First, read `SETUP_GUIDE.md` - pick your scenario (Greenfield or Brownfield).**
+
+---
 
 ## Prerequisites
 
-### Option A: Source from .env file
-
+Your `.env` must have:
 ```bash
-# Copy and customize environment template
-cp ../env.example ../.env
-# Edit .env with real values
-nano ../.env
-
-# Load environment variables
-set -a
-source ../.env
-set +a
+STACKIT_PROJECT_ID="your-project-id"
+STACKIT_SERVICE_ACCOUNT_KEY_PATH="/path/to/sa-key.json"
 ```
 
-### Option B: Manual export
-
+For existing buckets, also add:
 ```bash
-export STACKIT_PROJECT_ID="your-project-id"
-export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+AWS_ACCESS_KEY_ID="existing-key"
+AWS_SECRET_ACCESS_KEY="existing-secret"
 ```
 
-## Deployment
+---
+
+## State Management
+
+This module uses **local state** (stored in `terraform.tfstate` locally) instead of remote S3 state because of a bootstrap chicken-and-egg problem:
+- Before the bucket exists, we can't store state IN the bucket
+- This module is only run once to bootstrap the infrastructure
+
+The local state file is **NOT committed to git** for security reasons.
+
+### Handling Existing Resources
+
+If the resources already exist (e.g., deploying on an existing platform), you have two options:
+
+**Option 1: Import existing resources (recommended if you have the IDs)**
+
+Get the resource IDs from STACKIT UI or CLI, then import them:
 
 ```bash
-cd platform/00-state-bucket
-terragrunt init
+PROJECT_ID="272f2ba5-fa0a-4b8b-8ceb-e68165a87914"
+REGION="eu01"
+BUCKET_NAME="tfstate-meshstack-backend"
+CREDENTIALS_GROUP_ID="<get-from-stackit-ui>"
+CREDENTIAL_ID="<get-from-stackit-ui>"
+
+# Import them
+terragrunt import stackit_objectstorage_bucket.terraform_state "$PROJECT_ID,$REGION,$BUCKET_NAME"
+terragrunt import stackit_objectstorage_credentials_group.terraform_state "$PROJECT_ID,$REGION,$CREDENTIALS_GROUP_ID"
+terragrunt import stackit_objectstorage_credential.terraform_state "$PROJECT_ID,$REGION,$CREDENTIALS_GROUP_ID,$CREDENTIAL_ID"
+
+# Now apply is idempotent
 terragrunt apply
 ```
 
-## Outputs
+**Option 2: Create NEW credentials for existing bucket (quick & simple)**
 
-After deployment, you'll receive:
-- `bucket_name`: `tfstate-meshstack-backend`
-- `bucket_endpoint`: `https://object.storage.eu01.onstackit.cloud`
-- `access_key_id`: S3 access key (sensitive)
-- `secret_access_key`: S3 secret key (sensitive)
-
-## Configure AWS Credentials
-
-Export the credentials for other modules to use:
+If you don't know the existing resource IDs:
 
 ```bash
-# Get the credentials
-export AWS_ACCESS_KEY_ID=$(terragrunt output -raw access_key_id)
-export AWS_SECRET_ACCESS_KEY=$(terragrunt output -raw secret_access_key)
+# Try apply (will fail on bucket creation)
+terragrunt apply -auto-approve
 
-# Add to your environment or .env file
-echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> ../env.example
-echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> ../env.example
+# Remove the failed bucket resource from state
+terragrunt state rm stackit_objectstorage_bucket.terraform_state
+
+# Apply again - this time only credentials group and credential are created
+terragrunt apply -auto-approve
+
+# Get the new credentials
+terragrunt output -raw access_key_id
+terragrunt output -raw secret_access_key
 ```
+
+This creates **new credentials for the existing bucket**, which is safe because:
+- Multiple credential sets can exist in the same credentials group
+- You can have old and new credentials active simultaneously
+- This is useful for credential rotation
+
+---
 
 ## What Gets Created
 
 1. **Object Storage Bucket**: `tfstate-meshstack-backend`
-2. **Credentials Group**: `terraform-state-access` 
-3. **Access Credential**: S3-compatible access key/secret
+   - Location: STACKIT Object Storage (eu01)
+   - Purpose: Stores Terraform state for all other modules
+   - Encryption: Enabled
 
-## State Storage
+2. **Credentials Group**: `terraform-state-access`
+   - Purpose: Organizes access credentials
 
-This module stores its state **locally** in:
-```
-platform/00-state-bucket/terraform.tfstate
-```
+3. **Access Credential**: S3-compatible key/secret
+   - Purpose: Allows Terraform to read/write state to the bucket
+   - Format: AWS S3 compatible credentials (not actual AWS)
 
-### ⚠️ Bootstrap State Management
-
-This creates a **bootstrap problem**: 
-- The bucket's state is stored locally (can't use S3 before bucket exists)
-- State file is **NOT committed to git** (security best practice)
-- Each team member must handle state independently
-
-**Options for team collaboration:**
-
-**Option 1: Single owner (recommended for small teams)**
-- One person deploys and manages the state bucket
-- Others never touch this module
-- Outputs are shared via `.env` file
-
-**Option 2: Import existing resources**
-If you need to manage the bucket from a new machine:
-```bash
-terragrunt import stackit_objectstorage_bucket.terraform_state "PROJECT_ID,REGION,BUCKET_NAME"
-terragrunt import stackit_objectstorage_credentials_group.terraform_state "PROJECT_ID,REGION,GROUP_ID"
-terragrunt import stackit_objectstorage_credential.terraform_state "PROJECT_ID,REGION,GROUP_ID,CRED_ID"
-```
-
-**Option 3: Manual creation (production recommended)**
 - Create bucket manually via STACKIT Portal/CLI
 - Never manage with Terraform
 - Document manual setup steps
