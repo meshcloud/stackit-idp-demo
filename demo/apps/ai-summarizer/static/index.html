@@ -1,0 +1,321 @@
+<!-- file: demo/apps/ai-summarizer/static/index.html -->
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>STACKIT AI Summarizer Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Markdown-Renderer (clientseitig) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        color-scheme: light dark;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background: radial-gradient(circle at top left, #f5f5ff, #e9eef5);
+        min-height: 100vh;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+      }
+
+      .shell {
+        max-width: 960px;
+        width: 100%;
+        padding: 2.5rem 1.5rem 3rem;
+      }
+
+      .card {
+        background: #ffffffcc;
+        backdrop-filter: blur(8px);
+        border-radius: 16px;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+        padding: 2rem 2rem 2.4rem;
+      }
+
+      h1 {
+        margin: 0 0 0.4rem;
+        font-size: 1.9rem;
+        letter-spacing: 0.02em;
+      }
+
+      .subtitle {
+        margin: 0 0 1.6rem;
+        font-size: 0.95rem;
+        color: #4b5563;
+      }
+
+      .badge-row {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.6rem;
+        flex-wrap: wrap;
+      }
+
+      .badge {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+        color: #6b7280;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 1.5rem;
+      }
+
+      @media (max-width: 880px) {
+        .grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      label {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: #374151;
+        display: block;
+        margin-bottom: 0.4rem;
+      }
+
+      textarea {
+        width: 100%;
+        height: 220px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        padding: 0.7rem 0.8rem;
+        font-family: inherit;
+        font-size: 0.95rem;
+        resize: vertical;
+        box-sizing: border-box;
+      }
+
+      textarea:focus {
+        outline: none;
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 1px #4f46e533;
+      }
+
+      .button-row {
+        margin-top: 0.7rem;
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 0.45rem 1.4rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: linear-gradient(135deg, #4f46e5, #6366f1);
+        color: white;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        box-shadow: 0 12px 25px rgba(79, 70, 229, 0.3);
+        transition: transform 0.08s ease, box-shadow 0.08s ease,
+          opacity 0.08s ease;
+      }
+
+      button span.dot {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 999px;
+        background: white;
+        opacity: 0.7;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 16px 32px rgba(79, 70, 229, 0.35);
+      }
+
+      button:active {
+        transform: translateY(0);
+        box-shadow: 0 10px 20px rgba(79, 70, 229, 0.25);
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+        transform: none;
+        box-shadow: none;
+      }
+
+      .hint {
+        font-size: 0.8rem;
+        color: #6b7280;
+      }
+
+      .result-card {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+        padding: 1rem 1.1rem;
+        font-size: 0.95rem;
+        min-height: 120px;
+        box-sizing: border-box;
+        white-space: normal;
+      }
+
+      .result-title {
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+        color: #374151;
+      }
+
+      .result-body {
+        font-size: 0.92rem;
+        color: #111827;
+      }
+
+      .result-body ul {
+        margin: 0.4rem 0 0 1.1rem;
+        padding: 0;
+      }
+
+      .result-body li + li {
+        margin-top: 0.2rem;
+      }
+
+      .result-placeholder {
+        color: #9ca3af;
+        font-style: italic;
+      }
+
+      .footer-note {
+        margin-top: 1.2rem;
+        font-size: 0.78rem;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="card">
+        <h1>STACKIT AI Summarizer</h1>
+        <p class="subtitle">
+          Demo-Anwendung: Ein STACKIT-gehostetes KI-Modell fasst deutsche Texte
+          sachlich in Stichpunkten zusammen.
+        </p>
+
+        <div class="badge-row">
+          <span class="badge">Kubernetes Namespace</span>
+          <span class="badge">STACKIT AI Model Access</span>
+          <span class="badge">FastAPI · Python</span>
+        </div>
+
+        <div class="grid">
+          <div>
+            <label for="inputText">Eingabetext</label>
+            <p class="hint">
+              Tipp: Ein bekanntes Gedicht, ein Liedtext oder ein längerer
+              Beschreibungstext – die KI extrahiert den Kern.
+            </p>
+            <textarea
+              id="inputText"
+              placeholder="Text hier einfügen..."
+            ></textarea>
+            <div class="button-row">
+              <button id="summarizeBtn">
+                <span class="dot"></span>
+                Zusammenfassen
+              </button>
+              <span id="status" class="hint"></span>
+            </div>
+          </div>
+
+          <div>
+            <label>KI-Zusammenfassung</label>
+            <div class="result-card">
+              <div class="result-title">
+                Ergebnis in Stichpunkten
+              </div>
+              <div id="summary" class="result-body result-placeholder">
+                Noch keine Anfrage gestellt.
+              </div>
+            </div>
+            <p class="footer-note">
+              <!-- Die Anwendung nutzt Environment-Variablen aus dem Namespace, die
+              vom STACKIT-AI-Building-Block gesetzt werden
+              (API-Key, Modell, Endpoint). -->
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const btn = document.getElementById("summarizeBtn");
+      const input = document.getElementById("inputText");
+      const summaryDiv = document.getElementById("summary");
+      const statusSpan = document.getElementById("status");
+
+      async function callSummarizer() {
+        const text = input.value.trim();
+        if (!text) {
+          statusSpan.textContent = "Bitte gib einen Text ein.";
+          return;
+        }
+
+        btn.disabled = true;
+        statusSpan.textContent = "Die KI arbeitet...";
+        summaryDiv.classList.remove("result-placeholder");
+
+        try {
+          const resp = await fetch("/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+
+          if (!resp.ok) {
+            statusSpan.textContent =
+              "Fehler bei der Anfrage an den Summarizer.";
+            return;
+          }
+
+          const data = await resp.json();
+
+          // Markdown → HTML im Client
+          const raw = data.summary || data.summary_markdown || "";
+          const html = window.marked.parse(raw);
+          summaryDiv.innerHTML = html;
+          summaryDiv.classList.remove("result-placeholder");
+
+          statusSpan.textContent = "Fertig.";
+        } catch (err) {
+          statusSpan.textContent = "Ein technischer Fehler ist aufgetreten.";
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      btn.addEventListener("click", callSummarizer);
+
+      // Ctrl+Enter / Cmd+Enter triggert Zusammenfassung
+      input.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          callSummarizer();
+        }
+      });
+    </script>
+  </body>
+</html>
