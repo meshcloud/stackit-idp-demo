@@ -1,199 +1,259 @@
-# ✅ INSTRUCTIONS for Copilot (Terraform Sovereign Dev Platform Demo)
+# AI Assistant Instructions - STACKIT IDP Platform
 
-You are helping me develop Terraform modules for STACKIT Internal Developer Platform (IDP) powered by meshStack. Follow my naming conventions and keep each Terraform block nicely formatted (no one-liners). Always add short inline comments in English explaining the purpose of each resource.
+You are helping develop a **STACKIT Internal Developer Platform** using **Terragrunt + Terraform** and **meshStack Building Blocks**. Follow established conventions and keep code clean, modular, and well-documented.
 
-## Context Overview
+## Platform Architecture
 
-I am building a **Sovereign Developer Platform Demo** using **Terraform** on **STACKIT**. The official STACKIT Terraform provider which we use is at <https://registry.terraform.io/providers/stackitcloud/stackit/latest>.
-
-This project consists of two clearly separated layers:
-
-### 1) **bootstrap/**
-
-Infrastructure created once by the *platform team* to provide the shared foundation for all developers.
-
-Bootstrap provisions:
-
-* **STACKIT Kubernetes Engine (SKE) cluster**
-* **Harbor container registry project** (one project per environment, *not* per app)
-* **Harbor robot account** for pushing/pulling images
-* **Local kubeconfig** export
-* Other shared services in the future (AI model endpoints, shared networking, service mesh etc.)
-
-Bootstrap exposes outputs:
-
-* `kubeconfig_path`
-* `registry_url` (registry.stackit.cloud/<harbor_project>)
-* `harbor_robot_username`
-* `harbor_robot_token`
-
-These outputs are passed into the second layer as inputs.
-
-### 2) **app-env/**
-
-Infrastructure that is instantiated **per application** or per developer environment.
-This is the “developer self-service delivery” layer – the part that a developer gets “from the vending machine”.
-
-app-env provisions:
-
-* A Kubernetes **namespace**
-* A **container registry pull-secret** to access the private Harbor
-* Optional namespace-level configuration (resource limits, labels, RBAC etc.)
-* **Argo CD**
-* **Application deployment** via Helm (FastAPI demo for now)
-* Connection to Harbor via the bootstrap outputs
-* Later: CI/CD, DNS, AI service integration, meshStack Building Blocks, etc.
-
-This split is crucial:
-
-* `bootstrap` = platform capabilities, provisioned once
-* `app-env` = “one environment per developer/application”, instantiated many times
-
----
-
-## Repository Layout
-
-Tell Copilot this exact structure is intentional and should be kept:
+This platform uses **Terragrunt** for orchestration with the following structure:
 
 ```
-terraform/
-  bootstrap/
-    main.tf
-    variables.tf
-    outputs.tf
-    terraform.tfvars (local only)
-    modules/
-      ske-cluster-stackit/
-      registry-harbor/
-      ...
-  app-env/
-    main.tf
-    variables.tf
-    outputs.tf
-    modules/
-      namespace/
-      app-helm/
-      argocd/
-chart/
-  (Helm chart for demo app)
-bin/
-  app-env-apply.sh
-  mk-app-env-vars.sh
-scripts/
-  demo_build.sh
-docs/ai/
-  (for instructions)
-Makefile
+platform/
+  terragrunt.hcl              # Root: S3 backend config + common vars
+  01-ske/                     # STACKIT Kubernetes Engine cluster
+  02-harbor/                  # Harbor container registry
+  03-meshstack/               # meshStack platform integration
+  04-argocd/                  # ArgoCD GitOps controller
+  building-blocks/
+    namespace-with-argocd/    # Reusable building block for namespace provisioning
+  namespaces/
+    team-a-dev/               # Example namespace instance
+    team-b-prod/              # Another namespace instance
+
+app-repo-blueprint/           # Template for application teams
+  app/                        # Application code (Python FastAPI demo)
+  manifests/                  # Kustomize manifests (base + overlays)
+  .github/workflows/          # CI/CD pipeline (GitOps automation)
 ```
 
-Copilot should use this structure and extend it — **never collapse directories**, never merge bootstrap/app-env, never inline modules.
+## Key Principles
 
----
+### 1. Terragrunt-Based Orchestration
+- Use Terragrunt for dependency management between platform components
+- Each component (`01-ske`, `02-harbor`, etc.) has its own `terragrunt.hcl`
+- Dependencies are explicit via `dependency` blocks
+- S3 remote state configured in root `terragrunt.hcl`
 
-## Design Principles for Copilot
+### 2. Building Block Pattern
+- Modules in `building-blocks/` are reusable, self-contained units
+- Can be instantiated multiple times (e.g., one namespace per team)
+- Follow meshStack Building Block principles
+- Export all necessary outputs for consumption
 
-Tell Copilot to follow these principles:
+### 3. GitOps-First Deployment
+- Applications use **ArgoCD** for deployment (NOT direct kubectl/Helm)
+- GitHub Actions builds images and **updates Git manifests**
+- ArgoCD watches Git and syncs to cluster
+- No cluster credentials in CI pipelines
 
-### Terraform Style
+### 4. Clean Separation of Concerns
+- **Platform layer** (`platform/`): Shared infrastructure (cluster, registry, ArgoCD)
+- **Building blocks** (`building-blocks/`): Reusable modules for self-service
+- **App teams** (`app-repo-blueprint/`): Application code + manifests
 
-* **Never** use one-line block syntax.
-  Always use:
+## Terraform/Terragrunt Style Guidelines
 
-  ```hcl
-  resource "xyz" "name" {
-    field = value
+### Code Style
+```hcl
+resource "kubernetes_namespace" "app" {
+  metadata {
+    name = var.namespace_name
+    labels = {
+      "meshstack.io/tenant" = var.tenant_id
+    }
   }
-  ```
-* Use clearly named variables and outputs.
-* Provider blocks must be complete & explicit.
-* Keep bootstrap and app-env strongly separated and connected **only via variables / outputs**.
-* Add inline comments describing purpose of each block.
-* Keep modules small and composable (so they can later become meshStack Building Blocks)
+}
+```
 
-### Architecture Behavior
+- **Never** use one-line blocks
+- Always use multi-line HCL syntax
+- Add inline comments explaining **why**, not what
+- Use clear, descriptive variable names
+- All code and comments in **English**
 
-Copilot should understand the architecture:
+### Module Design
+- Small, composable modules
+- Explicit inputs via `variables.tf`
+- Clear outputs via `outputs.tf`
+- No hardcoded values (use variables)
+- No side effects beyond module scope
 
-* bootstrap outputs must be consumed by app-env.
-* app-env must not read from terraform state or filesystem of bootstrap.
-* registry repositories are created automatically on first push; app-env must not try to create them.
-* Harbor project is single environment-wide → created in bootstrap.
-* app-env uses the **namespace module**, **image pull secret**, **Helm-based app deployment**, and **Argo CD**.
-* No manual fixes or commands are allowed. Everything has to be done in code. As much as possible in terraform. Scripts and Makefile amendments are okay. Use the Makefile to codify and document workflows if they would require manual steps by me as the user.
-* When architecture decisions are necessary, first get my decision before implementing any code. Don't start into implementation of a suggestion without my consent.
+### Dependency Management
+```hcl
+dependency "harbor" {
+  config_path = "../../02-harbor"
+}
 
-### Next steps (where I am right now)
+inputs = {
+  registry_url = dependency.harbor.outputs.registry_url
+}
+```
 
-The SKE cluster successfully deployed.
-Next tasks for Copilot:
+- Use Terragrunt `dependency` blocks (not `terraform_remote_state`)
+- Rely on implicit dependencies through outputs (avoid `depends_on`)
+- Never reference other modules by path
 
-* Complete Harbor integration in bootstrap (done, but may improve)
-* Expand `app-env` to:
+## Platform Component Responsibilities
 
-  * create the namespace
-  * create Docker pull-secret from Harbor robot credentials
-  * deploy ArgoCD if not installed
-  * deploy the demo application Helm chart
-* Add an optional “Tiny CI” script integration (local build + push + ArgoCD auto-sync)
+### 01-ske (SKE Cluster)
+- Provisions STACKIT Kubernetes Engine cluster
+- Exports kubeconfig, cluster endpoint, CA certificate
+- Does NOT configure anything inside the cluster
 
-### Future extensions Copilot may help with
+### 02-harbor (Container Registry)
+- Provisions Harbor registry instance
+- Creates shared project (`platform-demo`)
+- Creates robot account for image push/pull
+- Exports registry URL and credentials
 
-* AI model provisioning inside bootstrap (e.g. STACKIT AI, IONOS AI)
-* meshStack Building Block wrappers for cluster provisioning, namespace, CI/CD, registry access, AI access
-* Optional GitOps repo generation (app-skeleton repo per environment)
-* Support for multi-app environments, RBAC, service mesh, ingress, DNS
+### 03-meshstack (meshStack Integration)
+- Configures meshStack platform connection
+- Sets up tenant/project mappings
+- Exports meshStack metadata
 
----
+### 04-argocd (GitOps Controller)
+- Installs ArgoCD via Helm
+- Configures admin credentials
+- Exports ArgoCD server URL
+- Does NOT create Application CRs (done by building blocks)
 
-## Goals Copilot Should Optimize For
+### building-blocks/namespace-with-argocd
+- Creates Kubernetes namespace with meshStack labels
+- Creates resource quotas and network policies
+- Creates Harbor pull secret
+- Creates ArgoCD Application CR pointing to team's Git repo
+- Fully self-contained (can be instantiated many times)
 
-* High developer productivity (minimal boilerplate, maximal reuse of modules)
-* Clean separation between platform and app-level infrastructure
-* A demo that allows:
+## Application Team Workflow
 
-  1. Provision bootstrap (cluster + registry)
-  2. Provision app-env (namespace + app + ArgoCD)
-  3. Edit code → Tiny CI → Argo sync → live update
-* Code that is production-like but still demo-friendly
-* Minimal external dependencies (STACKIT only, local tooling only)
-* Use English language for code comments and docs.
-* Keep documentation short and essential while still providing all necessary details, but leaving out the fluff.
+### Blueprint Structure
+```
+app-repo-blueprint/
+  app/
+    main.py                   # FastAPI application
+    Dockerfile                # Container build
+  manifests/
+    base/
+      deployment.yaml         # Base K8s resources
+      kustomization.yaml      # Kustomize config with image refs
+    overlays/
+      dev/                    # Dev environment customizations
+      prod/                   # Prod environment customizations
+  .github/workflows/
+    build-push.yaml           # CI: build → push → update manifest → commit
+```
 
----
+### GitOps Flow
+1. Developer pushes code to `main`
+2. GitHub Actions:
+   - Builds Docker image with Git SHA tag
+   - Pushes to Harbor registry
+   - Updates `manifests/base/kustomization.yaml` with new image tag
+   - Commits and pushes manifest change
+3. ArgoCD:
+   - Detects Git change
+   - Syncs to cluster
+   - Rolling update with new image
 
-## Example instruction you can add at the end
+### Key Files
 
-> “When I ask you to create a Terraform module or update a file, use the directory structure above, use only multi-line HCL blocks, keep bootstrap and app-env separated, and explain inline in comments why each part exists.”
+**`.github/workflows/build-push.yaml`:**
+- Builds image: `registry.onstackit.cloud/platform-demo/app:main-abc123`
+- Runs `kustomize edit set image` to update manifest
+- Commits manifest change to Git
 
-You MUST strictly follow the Provision/Configuration architecture defined in ADR-002.
+**`manifests/base/kustomization.yaml`:**
+```yaml
+images:
+  - name: APP_IMAGE
+    newName: registry.onstackit.cloud/platform-demo/app
+    newTag: main-abc123  # Updated by CI
+```
 
-Terraform Layer Boundaries (non-negotiable):
-1. The Provision layer (bootstrap/platform/provision) 
-   - creates infrastructure resources only
-   - MUST NOT use the Kubernetes provider
-   - exports kube_host, kube_ca_certificate, bootstrap_client_certificate, bootstrap_client_key
+## Decision Records (ADRs)
 
-2. The Configuration layer (bootstrap/platform/configure)
-   - uses the Kubernetes provider
-   - creates the platform-admin namespace, platform-terraform SA, RBAC, token secret
-   - outputs app_env_kube_host, app_env_kube_ca_certificate, app_env_kube_token
+### ADR-001: Harbor Registry Strategy
+- **Decision:** One shared Harbor project per environment (not per app)
+- **Rationale:** Simplifies demo setup, reduces complexity
+- **Future:** May evolve to per-team or per-app projects
 
-3. The App-Env layer (app-env/main)
-   - configures its own Kubernetes provider with the outputs from Configuration
-   - creates app namespaces, quotas, network policies, etc.
-   - MUST NOT create cluster-wide ServiceAccounts
+### ADR-002: Bootstrap Platform Components
+- **Decision:** Split into Provision (infrastructure) and Configuration (in-cluster setup)
+- **Note:** Current platform uses Terragrunt, ADR-002 references are legacy
 
-Repo rules:
-- Never define the Kubernetes provider in the bootstrap root.
-- Never bypass the Provision/Configuration split.
-- All Terraform code and comments MUST be in English.
-- Modules must communicate ONLY via explicit inputs/outputs.
-- Do not use depends_on on module blocks; rely on implicit dependencies through outputs.
+## Common Tasks
 
-Your task when asked:
-- Refactor Terraform code to match this structure.
-- Update the Makefile to orchestrate: provision → configure → app-env.
-- Never introduce provider passthrough in bootstrap.
-- Never collapse Provision and Configuration into one step.
+### Deploy Platform
+```bash
+cd platform
+export STACKIT_PROJECT_ID="..."
+export STACKIT_SERVICE_ACCOUNT_KEY_PATH="..."
+export HARBOR_USERNAME="admin"
+export HARBOR_CLI_SECRET="..."
+terragrunt run-all apply
+```
 
-If any requested change violates these rules, refuse and propose the correct solution.
+### Provision Namespace for Team
+```bash
+cd platform/namespaces/team-a-dev
+terragrunt apply
+```
+
+### Setup App Repository
+```bash
+cp -r app-repo-blueprint team-a-app
+cd team-a-app
+# Configure GitHub secrets: HARBOR_USERNAME, HARBOR_PASSWORD, HARBOR_PROJECT
+git push origin main
+# CI runs automatically → ArgoCD syncs
+```
+
+## When Making Changes
+
+### Adding a New Platform Component
+1. Create `platform/05-newcomponent/` directory
+2. Add `terragrunt.hcl` with dependencies
+3. Create `module/` subdirectory with `main.tf`, `variables.tf`, `outputs.tf`
+4. Update `platform/README.md` with component description
+5. Export outputs for consumption by building blocks
+
+### Creating a New Building Block
+1. Create `platform/building-blocks/new-block/` directory
+2. Write self-contained Terraform module
+3. Accept inputs via variables (no hardcoded values)
+4. Export all necessary outputs
+5. Add `README.md` explaining usage
+6. Instantiate in `platform/namespaces/` for testing
+
+### Updating App Blueprint
+1. Test changes in `app-repo-blueprint/`
+2. Ensure CI workflow works end-to-end
+3. Verify ArgoCD sync after manifest update
+4. Update `app-repo-blueprint/README.md` with instructions
+
+## Security & Best Practices
+
+- **No secrets in Git:** Use environment variables or secret managers
+- **Least privilege:** ServiceAccounts have minimal required permissions
+- **Network policies:** Default-deny in all namespaces
+- **Resource quotas:** Prevent resource exhaustion
+- **Image scanning:** Harbor vulnerability scanning enabled
+- **GitOps audit trail:** Every deployment = Git commit
+
+## Tools & References
+
+- **STACKIT Provider:** https://registry.terraform.io/providers/stackitcloud/stackit/latest
+- **Terragrunt Docs:** https://terragrunt.gruntwork.io/docs/
+- **ArgoCD Docs:** https://argo-cd.readthedocs.io/
+- **Kustomize Docs:** https://kustomize.io/
+
+## Response Guidelines
+
+When implementing changes:
+1. Ask for clarification before making architectural decisions
+2. Follow existing patterns and conventions
+3. Keep modules small and focused
+4. Write inline comments explaining **why**, not what
+5. Test changes locally before committing
+6. Update documentation when changing behavior
+
+If a requested change violates platform principles, explain why and propose an alternative.

@@ -1,6 +1,6 @@
 # Cluster Access: Operations Manual
 
-This document explains how long-term cluster access works in the IDP demo.
+This document explains how long-term cluster access works in the STACKIT IDP platform.
 
 ## Problem
 
@@ -8,335 +8,221 @@ This document explains how long-term cluster access works in the IDP demo.
 - **Production readiness:** A platform that becomes undeployable after 8h is not production-ready
 - **Automation:** Terraform must reliably manage K8s resources over weeks/months
 
-## Solution: Three-Layer Architecture with ServiceAccount-Based Access
+## Solution: ServiceAccount-Based Access
 
-See **ADR-002** (Bootstrap Platform Components) for architecture details.
+The platform uses Kubernetes ServiceAccounts for long-lived automation credentials. This ensures Terraform can manage cluster resources beyond the kubeconfig expiry window.
 
 ---
 
-## Workflow: Development & Testing
+## Deployment Workflow
 
-### Phase 1: Validate All Layers (optional)
-
-```bash
-make validate
-```
-
-Ensures all three layers are syntactically correct.
-
-### Phase 2: Deploy Provision Layer
+### Step 1: Deploy Platform Infrastructure
 
 ```bash
-make provision
+cd platform
+
+# Set environment variables
+export STACKIT_PROJECT_ID="your-project-id"
+export STACKIT_SERVICE_ACCOUNT_KEY_PATH="~/.stackit/sa-key.json"
+export HARBOR_USERNAME="admin"
+export HARBOR_CLI_SECRET="your-harbor-secret"
+
+# Deploy all platform components
+terragrunt run-all plan
+terragrunt run-all apply
 ```
 
 **What happens:**
-1. SKE cluster is created (~9-10 min)
-2. Harbor Registry is configured (~1-2 min)
-3. Terraform exports:
-   - `kube_host`: K8s API URL
-   - `cluster_ca_certificate`: CA certificate
-   - `bootstrap_client_certificate`: Client cert (expires ~8h)
-   - `bootstrap_client_key`: Client key
+1. SKE cluster is created (~10 min)
+2. Harbor registry is provisioned
+3. meshStack integration is configured
+4. ArgoCD is installed
 
-### Phase 3: Deploy Configure Layer
+### Step 2: Provision Application Namespace
 
 ```bash
-make configure
+cd platform/namespaces/team-a-dev
+terragrunt apply
 ```
 
-**What the Makefile does:**
-1. ✅ Checks that Provision is deployed
-2. ✅ Reads Provision's `terraform.tfstate` and extracts outputs
-3. ✅ Writes outputs to `bootstrap/platform/configure/terraform.auto.tfvars.json`
-4. ✅ Deploys Configure layer with credential injection
+**What gets created:**
+1. Kubernetes namespace with meshStack labels
+2. Resource quotas and network policies
+3. Harbor registry pull secret
+4. ArgoCD Application CR for GitOps
 
-**What Configure deploys:**
-1. Kubernetes provider (certificate-based auth from Provision)
-2. `platform-admin` namespace
-3. `platform-terraform` ServiceAccount + ClusterRole (8 permission rules)
-4. Kubernetes Secret containing long-lived token
-5. Data source extracts token from secret
-6. Exports: `app_env_kube_host`, `app_env_kube_ca_certificate`, `app_env_kube_token`
-
-### Phase 4: Deploy App-Env Layer
+### Step 3: Setup Application Repository
 
 ```bash
-make app-env
+# Copy blueprint
+cp -r app-repo-blueprint team-a-app
+cd team-a-app
+
+# Configure GitHub secrets (in GitHub UI):
+# - HARBOR_USERNAME
+# - HARBOR_PASSWORD
+# - HARBOR_PROJECT
+
+# Push to GitHub
+git init
+git remote add origin https://github.com/YOUR_ORG/team-a-app
+git add .
+git commit -m "Initial commit"
+git push -u origin main
 ```
 
-**What the Makefile does:**
-1. ✅ Checks that Configure is deployed
-2. ✅ Reads Configure's `terraform.tfstate` and extracts outputs
-3. ✅ Writes outputs to `app-env/terraform.auto.tfvars.json`
-4. ✅ Deploys App-Env with token-based authentication
-
-**What App-Env deploys:**
-1. Kubernetes provider (token-based auth from Configure)
-2. `demo-app` namespace
-3. ResourceQuota (4 CPU, 8Gi memory requests)
-4. LimitRange (100m-2 CPU per container)
-5. NetworkPolicies (deny-all ingress/egress)
-
-**Important:**
-- ✅ Each layer is completely independent
-- ✅ Credentials flow through explicit state injection (Python scripts)
-- ✅ No tight coupling, no terraform_remote_state
-- ✅ Provision layer expires but Configure token is persistent
-
-### Phase 5: Test Cluster Connectivity
-
-```bash
-# Automated tests
-make test-connection
-
-# Or manual testing
-make kubeconfig
-export KUBECONFIG=/tmp/kubeconfig-token
-kubectl get ns demo-app
-```
+**GitOps automation:**
+- GitHub Actions builds and pushes image
+- CI updates Kustomize manifest with new image tag
+- ArgoCD detects Git change and syncs to cluster
 
 ---
 
-## Testing with kubectl
+## Technical Details
 
-### Generate Long-Lived kubeconfig
+### Terragrunt Dependency Management
 
-The `make kubeconfig` target generates a kubeconfig using the persistent platform-terraform token:
+```hcl
+# platform/04-argocd/terragrunt.hcl
+dependency "ske" {
+  config_path = "../01-ske"
+}
 
-```bash
-make kubeconfig
+inputs = {
+  kubeconfig_path = dependency.ske.outputs.kubeconfig_path
+}
 ```
 
-This shows:
+**How it works:**
+- Terragrunt automatically manages execution order
+- Outputs from dependencies are available as inputs
+- S3 remote state configured in root `terragrunt.hcl`
+- No manual state file manipulation needed
 
-```
-📋 To use kubectl with proper credentials, run:
+### Credential Lifecycle
 
-  export KUBECONFIG=/tmp/kubeconfig-token
-
-Or in one line:
-
-  eval "$(make kubeconfig)" && echo 'export KUBECONFIG=/tmp/kubeconfig-token'
-
-Then test with:
-  kubectl get ns
-  kubectl get ns demo-app
-```
-
-### Manual Token Extraction
-
-If you need to extract the token directly:
-
-```bash
-# Extract from Configure layer state
-terraform -chdir=terraform/bootstrap/platform/configure output -raw app_env_kube_token
-
-# Store for future deployments (securely!)
-TOKEN=$(terraform -chdir=terraform/bootstrap/platform/configure output -raw app_env_kube_token)
-
-# Use with kubectl
-export KUBECONFIG=/tmp/my-kubeconfig
-kubectl config set-cluster stackit-cluster --server=https://...
-kubectl config set clusters.stackit-cluster.certificate-authority-data "$(base64 < ca.crt)"
-kubectl config set-credentials platform-terraform --token="$TOKEN"
-kubectl config set-context stackit-cluster --cluster=stackit-cluster --user=platform-terraform
-kubectl config use-context stackit-cluster
-```
-
----
-
-## Credential Lifecycle
-
-| Component | Lifespan | Management | Usage |
+| Component | Lifetime | Management | Usage |
 |---|---|---|---|
-| Provision kubeconfig (Client-Cert) | ~8h | Generated by SKE provider | Certificate-based auth for Configure layer |
-| Configure layer state | Indefinite | Filesystem | Source of truth for credentials |
-| platform-terraform token | Indefinite | K8s Secret (in platform-admin namespace) | Token-based auth for App-Env layer |
-| App-Env state | Indefinite | Filesystem | Proof of deployment |
+| SKE kubeconfig (Client Cert) | ~8h | Generated by SKE provider | Local kubectl access |
+| ArgoCD ServiceAccount | Indefinite | Created by ArgoCD module | GitOps automation |
+| Harbor Robot Account | Indefinite | Created by Harbor module | Image push/pull |
 
 **Flow:**
 
 ```
-Provision Layer:
-  SKE kubeconfig (8h) 
-    ↓
-  [inject-provision-to-configure.py]
-    ↓
-  Configure/terraform.auto.tfvars.json
-    ↓
+Platform Deployment:
+  kubeconfig (8h) → [Install ArgoCD] → ServiceAccount created
 
-Configure Layer:
-  Certificate-based auth → Create platform-terraform ServiceAccount + Secret
-  Long-lived token in Secret
-    ↓
-  [inject-configure-to-appenv.py]
-    ↓
-  App-Env/terraform.auto.tfvars.json
-    ↓
-
-App-Env Layer:
-  Token-based auth → Deploy namespace + policies
-  Persistent credentials stored in state file
+Application Deployment:
+  ArgoCD ServiceAccount → [Watch Git] → Sync to cluster
+  Harbor Robot Account → [Pull images] → Deploy pods
 ```
 
 ---
 
 ## Admin Access (kubectl)
 
-For manual admin access to the cluster:
-
-### Option A: Using the long-lived token (recommended)
+For manual cluster access:
 
 ```bash
-make kubeconfig
-export KUBECONFIG=/tmp/kubeconfig-token
+# Get fresh kubeconfig from platform
+cd platform/01-ske
+terragrunt output kubeconfig_path
+
+# Use kubeconfig
+export KUBECONFIG=$(terragrunt output -raw kubeconfig_path)
 kubectl get nodes
 ```
-
-### Option B: Using fresh credentials from Provision layer
-
-```bash
-# Refresh Provision outputs (gets fresh SKE kubeconfig)
-cd demo/terraform/bootstrap/platform/provision
-terraform refresh
-
-# Extract fresh credentials
-cd ../../../
-export KUBECONFIG=demo/terraform/bootstrap/platform/provision/kubeconfig
-kubectl get nodes
-```
-
-**Note:** This kubeconfig will expire after ~8h. Use Option A for longer sessions.
 
 ---
 
 ## Troubleshooting
 
-### "Unauthorized" when running make configure
+### ArgoCD Application Not Syncing
 
-**Cause:** Provision credentials not injected properly
-
-**Solution:**
-
+**Check Application status:**
 ```bash
-# 1. Check if terraform.auto.tfvars.json was created
-cat terraform/bootstrap/platform/configure/terraform.auto.tfvars.json
-
-# 2. Re-run injection
-python3 scripts/inject-provision-to-configure.py
-
-# 3. Check Provision state exists and is valid
-terraform -chdir=terraform/bootstrap/platform/provision state list
-
-# 4. Retry configure
-make configure
+kubectl get applications -n argocd
+kubectl describe application team-a-dev -n argocd
 ```
 
-### "Unauthorized" when running make app-env
-
-**Cause:** Configure credentials not injected properly
-
-**Solution:**
-
+**Manual sync:**
 ```bash
-# 1. Check if terraform.auto.tfvars.json was created
-cat terraform/app-env/terraform.auto.tfvars.json
-
-# 2. Re-run injection
-python3 scripts/inject-configure-to-appenv.py
-
-# 3. Check Configure state exists and contains outputs
-terraform -chdir=terraform/bootstrap/platform/configure output
-
-# 4. Retry app-env
-make app-env
+argocd app sync team-a-dev
 ```
 
-### kubectl commands fail with permission errors
+### Harbor Pull Failures
 
-**Cause:** platform-terraform SA has limited permissions by design
-
-**Note:** This is expected! platform-terraform can only:
-- Read/list namespaces
-- Read/list ResourceQuotas, LimitRanges, NetworkPolicies
-- Read/list RBAC resources
-- NOT create pods, deployments, or modify workloads
-
-This is correct isolation for the automation layer.
-
-### make kubeconfig fails
-
-**Cause:** Configure layer not deployed
-
-**Solution:**
-
+**Check pull secret:**
 ```bash
-# Deploy Configure first
-make provision
-make configure
-
-# Then generate kubeconfig
-make kubeconfig
+kubectl get secret harbor-pull-secret -n team-a-dev -o yaml
+kubectl describe pod POD_NAME -n team-a-dev
 ```
 
-### Token appears in logs/terminal
+### Kubeconfig Expired
 
-**Security note:** Tokens may appear in:
-- Terraform logs (especially in -verbose mode)
-- kubectl output when describing secrets
-- Your shell history
+**For admin access:**
+```bash
+cd platform/01-ske
+terragrunt refresh
+```
 
-**Best practices:**
-1. Don't commit terraform.auto.tfvars.json to Git
-2. Rotate tokens periodically
-3. Use Secrets Manager for production
-4. Clear shell history: `history -c`
-5. Set `HISTFILE=/dev/null` for sensitive sessions
+**For automation:** No issue - ArgoCD uses ServiceAccount credentials that don't expire.
+
+### Terragrunt Dependency Issues
+
+**Clear cache:**
+```bash
+find . -name ".terragrunt-cache" -type d -exec rm -rf {} +
+terragrunt run-all init
+```
+
+**Check dependency graph:**
+```bash
+terragrunt graph-dependencies
+```
 
 ---
 
 ## Best Practices
 
-1. **Never commit kubeconfig or terraform.auto.tfvars.json to Git**
-   - These contain live credentials
-   - They expire or become invalid
-   - Add to .gitignore
-
-2. **Store long-lived tokens securely**
-   - Vault, AWS Secrets Manager, or similar
-   - Encrypted git if necessary (e.g., git-crypt)
-   - Never in plain text
-
-3. **Test regularly**
-   - Run `make test-connection` weekly
-   - Monitor token expiration
-   - Plan token rotation strategy
-
-4. **Layer independence**
-   - Each layer can be re-deployed independently
-   - Provision layer expiration doesn't affect App-Env
-   - Credentials flow through explicit injection only
-
-5. **Audit and monitoring**
-   - Log all terraform applies
-   - Monitor ServiceAccount token usage
-   - Alert on authentication failures
-
-6. **Token rotation strategy**
-   - Current: Manual via Configure layer re-deploy
-   - Future: Kubernetes CronJob for automatic rotation
-   - Consider: Secrets Manager integration
+1. **Never commit kubeconfig** → expires after 8h, security risk
+2. **Store Harbor credentials securely** → use GitHub Secrets for CI
+3. **Test regularly** → `terragrunt run-all plan` weekly
+4. **Backup state** → S3 bucket is critical
+5. **Use GitOps** → let ArgoCD handle deployments
+6. **Monitor ArgoCD** → watch for sync failures
 
 ---
 
-## Future Improvements
+## Building Blocks / meshStack Integration
 
-- [ ] Automatic token rotation (Kubernetes CronJob)
-- [ ] Secrets Manager integration (Vault, AWS Secrets)
-- [ ] OIDC-federated ServiceAccounts (if STACKIT supports)
-- [ ] Per-application ServiceAccounts (instead of shared platform-terraform)
-- [ ] Remote Backend support (S3, Terraform Cloud)
-- [ ] Automated kubeconfig refresh in CI/CD
-- [ ] Token expiration monitoring and alerts
-- [ ] Multi-cluster support with credential scoping
+The platform is **ready for meshStack Building Blocks**:
+
+```hcl
+# meshStack can wrap platform modules as Building Blocks
+module "namespace" {
+  source = "git::https://.../building-blocks/namespace-with-argocd"
+  
+  namespace_name        = var.meshstack_workspace_id
+  github_repo_url       = var.team_git_repo
+  harbor_robot_username = var.harbor_robot_username
+  harbor_robot_token    = var.harbor_robot_token
+}
+```
+
+**Integration points:**
+- Building blocks are self-contained Terraform modules
+- meshStack provides tenant/project metadata as variables
+- Modules use Terragrunt dependencies for platform resources
+
+---
+
+## Future Enhancements
+
+- [ ] ServiceAccount token rotation automation
+- [ ] Vault integration for secrets
+- [ ] OIDC-federated ServiceAccounts
+- [ ] Multi-tenant RBAC (namespace-scoped ServiceAccounts)
+- [ ] Prometheus/Grafana monitoring
+- [ ] Ingress controller for external access
