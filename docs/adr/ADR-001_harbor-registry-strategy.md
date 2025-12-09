@@ -1,9 +1,9 @@
 # **ADR-001 — Harbor Registry Project Strategy (Platform-Level vs. App-Level)**
 
-**Status:** Accepted
-**Date:** 2025-11-18  
-**Updated:** 2025-11-28
-**Context:** Sovereign Developer Platform (STACKIT-based IDP Demo)
+- **Status:** Accepted
+- **Date:** 2025-11-18  
+- **Updated:** 2025-11-28
+- **Context:** Sovereign Developer Platform (STACKIT-based IDP Demo)
 
 ---
 

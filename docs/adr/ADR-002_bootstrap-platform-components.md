@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2025-11-18 (finalized 2025-11-27, superseded 2025-12-09)
-- Superseded by: ADR-003
+- **Superseded by**: ADR-003
 
 > Note: This ADR describes an early bootstrap concept (three-step model).  
 > It has been superseded by ADR-003, which documents the Terragrunt-based platform bootstrap and repo layout.

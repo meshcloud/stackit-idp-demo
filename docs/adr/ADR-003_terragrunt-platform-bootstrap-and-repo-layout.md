@@ -1,8 +1,8 @@
 # ADR-003: Terragrunt-based platform bootstrap and repository layout
 
-**Status:** Accepted  
-**Date:** 2025-12-09  
-**Supersedes:** ADR-002
+- **Status:** Accepted  
+- **Date:** 2025-12-09  
+- **Supersedes:** ADR-002
 
 ---
 
