@@ -15,3 +15,8 @@
 - Currently: goharbor/harbor provider returns 401 errors despite valid credentials (curl works fine)
 - Workaround: Create project and robot accounts manually in Harbor UI, then pass credentials to Terraform as variables
 - Future: Investigate provider issue or implement curl-based provisioning in bootstrap module
+
+## git organization onboarding ##
+
+- User does not get access to STACKIT git out of the blue
+- Organization onboarding has to be done separately
