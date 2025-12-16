@@ -20,3 +20,11 @@
 
 - User does not get access to STACKIT git out of the blue
 - Organization onboarding has to be done separately
+
+## git actions ##
+
+- Actions Runner for STACKIT git is currently provided manually and takes up to 2 days
+- To make our PoC more lightweigh, we go for a local CI script which builds the container and pushes it into the app env's registry
+- ArgoCD picks it up from there and deploys it.
+- The credentials for the registry push robot account will be provided by a special building block. The developers need to put it into their personal env files for now.
+- Later, we either switch to a STACKIT runner or deploy a custom forgejo runner: https://forgejo.org/docs/latest/admin/actions/runner-installation/ which can be registered in STACKIT git.
