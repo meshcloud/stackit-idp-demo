@@ -18,7 +18,6 @@ terraform {
 provider "gitea" {
   base_url = var.gitea_base_url
   token    = var.gitea_token
-  api_version = "v1"
 }
 
 # Create the GitOps state repository
