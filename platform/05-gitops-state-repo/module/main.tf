@@ -28,7 +28,6 @@ resource "gitea_repository" "state_repo" {
   private           = true
   auto_init         = true
   default_branch    = var.default_branch
-  ignore_whitespace = false
   issue_labels      = ""
 }
 
