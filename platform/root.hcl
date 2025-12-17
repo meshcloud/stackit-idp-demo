@@ -14,10 +14,14 @@ remote_state {
     key    = "${path_relative_to_include()}/terraform.tfstate"
     region = "eu01"
     
-    endpoint                    = "https://object.storage.eu01.onstackit.cloud"
+    endpoints = {
+      s3 = "https://object.storage.eu01.onstackit.cloud"
+    }
+
     skip_credentials_validation = true
     skip_metadata_api_check     = true
     skip_region_validation      = true
+    skip_requesting_account_id  = true
     force_path_style            = true
     
     encrypt = true
