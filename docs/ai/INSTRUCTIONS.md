@@ -171,14 +171,7 @@ images:
 
 ## Decision Records (ADRs)
 
-### ADR-001: Harbor Registry Strategy
-- **Decision:** One shared Harbor project per environment (not per app)
-- **Rationale:** Simplifies demo setup, reduces complexity
-- **Future:** May evolve to per-team or per-app projects
-
-### ADR-002: Bootstrap Platform Components
-- **Decision:** Split into Provision (infrastructure) and Configuration (in-cluster setup)
-- **Note:** Current platform uses Terragrunt, ADR-002 references are legacy
+See docs/adr/* for architectural decisions and their reasoning.
 
 ## Common Tasks
 
@@ -208,6 +201,8 @@ git push origin main
 ```
 
 ## When Making Changes
+
+For architectural changes, add a new ADR in docs/adr/.
 
 ### Adding a New Platform Component
 1. Create `platform/05-newcomponent/` directory
@@ -249,7 +244,7 @@ git push origin main
 ## Response Guidelines
 
 When implementing changes:
-1. Ask for clarification before making architectural decisions
+1. Ask for clarification before making architectural decisions. For changes in the architectural design an ADR should be placed in docs/adr/.
 2. Follow existing patterns and conventions
 3. Keep modules small and focused
 4. Write inline comments explaining **why**, not what
