@@ -1,3 +1,21 @@
+variable "kubernetes_host" {
+  type        = string
+  description = "Kubernetes API server endpoint"
+  sensitive   = true
+}
+
+variable "kubernetes_cluster_ca_certificate" {
+  type        = string
+  description = "Kubernetes cluster CA certificate (base64 encoded)"
+  sensitive   = true
+}
+
+variable "kubernetes_token" {
+  type        = string
+  description = "Kubernetes authentication token (service account or user token)"
+  sensitive   = true
+}
+
 variable "argocd_namespace" {
   type    = string
   default = "argocd"
