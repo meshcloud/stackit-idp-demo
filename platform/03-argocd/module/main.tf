@@ -19,13 +19,19 @@ terraform {
   }
 }
 
+# Use explicit cluster credentials instead of kubeconfig file
+# to avoid storing sensitive cluster tokens on disk
 provider "kubernetes" {
-  config_path = "${path.module}/kubeconfig.yaml"
+  host                   = var.kubernetes_host
+  cluster_ca_certificate = base64decode(var.kubernetes_cluster_ca_certificate)
+  token                  = var.kubernetes_token
 }
 
 provider "helm" {
-  kubernetes = {
-    config_path = "${path.module}/kubeconfig.yaml"
+  kubernetes {
+    host                   = var.kubernetes_host
+    cluster_ca_certificate = base64decode(var.kubernetes_cluster_ca_certificate)
+    token                  = var.kubernetes_token
   }
 }
 

@@ -10,19 +10,22 @@ dependency "ske" {
   config_path = "../01-ske"
   
   mock_outputs = {
-    kubeconfig = "mock-kubeconfig-content"
+    kube_host                     = "https://mock-kube-host"
+    cluster_ca_certificate        = "bW9jay1jZXJ0aWZpY2F0ZQ=="
+    client_certificate            = "bW9jay1jbGllbnQtY2VydA=="
+    client_key                    = "bW9jay1jbGllbnQta2V5"
   }
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
 }
 
-generate "kubeconfig" {
-  path      = "kubeconfig.yaml"
-  if_exists = "overwrite"
-  contents  = dependency.ske.outputs.kubeconfig
-}
-
 inputs = {
-  argo_workflows_namespace = "argo-workflows"
+  # Use explicit cluster credentials from SKE module instead of kubeconfig file
+  # This prevents storing sensitive tokens on disk during Terraform execution
+  kubernetes_host                   = dependency.ske.outputs.kube_host
+  kubernetes_cluster_ca_certificate = dependency.ske.outputs.cluster_ca_certificate
+  kubernetes_token                  = get_env("TF_VAR_kubernetes_token")
+  
+  argo_workflows_namespace = "platform-argo-workflows"
   argo_workflows_version   = "0.42.5"
   argo_events_version      = "2.4.8"
 }
