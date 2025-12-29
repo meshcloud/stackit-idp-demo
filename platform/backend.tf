@@ -3,12 +3,17 @@ terraform {
   backend "s3" {
     bucket                      = "tfstate-meshstack-backend"
     encrypt                     = true
-    endpoint                    = "https://object.storage.eu01.onstackit.cloud"
+
+    endpoints = {
+      s3 = "https://object.storage.eu01.onstackit.cloud"
+    }
+    
     force_path_style            = true
     key                         = "./terraform.tfstate"
     region                      = "eu01"
     skip_credentials_validation = true
     skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
     skip_region_validation      = true
   }
 }
