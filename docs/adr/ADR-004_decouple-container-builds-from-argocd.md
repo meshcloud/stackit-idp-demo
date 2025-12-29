@@ -259,9 +259,45 @@ These items will be handled in follow-up ADRs and implementation docs.
 
 ---
 
-## Appendix: `app-env.yaml` and `release.yaml` draft schemes
+## Appendix: GitOps Layout draft schemes (`app-env.yaml` and `release.yaml`)
 
-### `app-env.yaml`
+### Stable Identifiers in GitOps State Paths
+
+The GitOps state repository uses a hierarchical directory structure that mirrors the meshStack domain model
+(workspace → project → tenant).
+
+All path segments MUST be based on **stable technical identifiers** (IDs or immutable slugs),
+not on human-readable display names.
+
+Rationale:
+
+- In meshStack, workspaces, projects, and tenants may be renamed or reorganized over time.
+- GitOps state paths must remain stable to avoid accidental redeployments, drift, or loss of history.
+- Human-readable names are considered presentation metadata and must not be used as addressing keys.
+
+Therefore:
+
+- Repository paths use `<workspace-id>`, `<project-id>`, `<tenant-id>`.
+- Display names MAY be included as optional metadata inside `app-env.yaml`,
+  but MUST NOT influence reconciliation or deployment logic.
+
+Example:
+
+```
+workspaces/<workspace-id>/
+projects/<project-id>/
+tenants/<tenant-id>/
+app-env.yaml
+release.yaml
+```
+
+This structure is a **platform convention**, not a hard technical requirement.
+Alternative layouts are possible by adapting the platform’s ArgoCD configuration,
+without affecting application teams or build pipelines.
+
+The GitOps state repository layout is owned by the platform team. Application teams interact only through the semantic contract defined in `app-env.yaml` (not directly, but over a defined interface/UI, e.g. Building Blocks) and `release.yaml`, not through repository paths.
+
+### `app-env.yaml` example
 
 ```yaml
 apiVersion: idp.meshcloud.io/v1alpha1
