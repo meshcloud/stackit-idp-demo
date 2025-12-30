@@ -20,7 +20,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = var.kubernetes_host
     cluster_ca_certificate = base64decode(var.kubernetes_cluster_ca_certificate)
     token                  = var.kubernetes_token

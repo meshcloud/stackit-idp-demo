@@ -12,10 +12,6 @@ terraform {
       source  = "hashicorp/random"
       version = ">= 3.5"
     }
-    bcrypt = {
-      source  = "viktorradnai/bcrypt"
-      version = ">= 0.1.2"
-    }
   }
 }
 
@@ -28,7 +24,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = var.kubernetes_host
     cluster_ca_certificate = base64decode(var.kubernetes_cluster_ca_certificate)
     token                  = var.kubernetes_token
@@ -38,11 +34,6 @@ provider "helm" {
 resource "random_password" "argocd_admin" {
   length  = 24
   special = true
-}
-
-resource "bcrypt_hash" "argocd_admin" {
-  cleartext = random_password.argocd_admin.result
-  cost      = 10
 }
 
 resource "kubernetes_namespace" "argocd" {
@@ -65,7 +56,7 @@ resource "helm_release" "argocd" {
     yamlencode({
       configs = {
         secret = {
-          argocdServerAdminPassword = bcrypt_hash.argocd_admin.id
+          argocdServerAdminPassword = random_password.argocd_admin.result
         }
       }
       server = {

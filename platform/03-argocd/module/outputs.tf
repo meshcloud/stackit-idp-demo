@@ -8,12 +8,6 @@ output "argocd_admin_password" {
   description = "ArgoCD admin password (plaintext)"
 }
 
-output "argocd_admin_password_bcrypt" {
-  value       = bcrypt_hash.argocd_admin.id
-  sensitive   = true
-  description = "ArgoCD admin password (plaintext)"
-}
-
 output "platform_terraform_token" {
   value       = try(data.kubernetes_secret.platform_terraform_token.data["token"], "")
   sensitive   = true
