@@ -28,4 +28,7 @@ inputs = {
   harbor_url            = get_env("TF_VAR_harbor_url")
   harbor_robot_username = get_env("TF_VAR_harbor_robot_username")
   harbor_robot_token    = get_env("TF_VAR_harbor_robot_token")
+  
+  # ADR-004 STEP 2: GitOps state repository for application environment definitions
+  gitops_state_repo_url = get_env("TF_VAR_gitops_state_repo_url", "https://git-service.git.onstackit.cloud/platform/app-environments.git")
 }

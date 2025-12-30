@@ -1,0 +1,58 @@
+apiVersion: idp.meshcloud.io/v1alpha1
+kind: AppEnvironment
+
+metadata:
+  name: hello-api-dev
+  workspace: likvid
+  project: hello-api
+  tenant: dev
+
+spec:
+  # Platform-controlled namespace boundary
+  target:
+    namespace: app-likvid-hello-api-dev
+    cluster: ske-main
+
+  # Registry mapping (Release Controller watches this repository)
+  registry:
+    provider: harbor
+    repository: registry.onstackit.cloud/platform-demo/hello-api
+    deployPolicy:
+      mode: auto
+
+  # Runtime configuration that app teams can influence
+  runtime:
+    service:
+      port: 8080
+      protocol: http
+
+    scaling:
+      replicas: 2
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+
+  # Ingress exposure (optional)
+  ingress:
+    enabled: true
+    host: hello-api-dev.example.com
+    path: /
+    tls:
+      enabled: false
+
+  # Environment variables for the application
+  config:
+    env:
+      - name: LOG_LEVEL
+        value: "info"
+      - name: ENVIRONMENT
+        value: "development"
+
+  # Release channel (informational in v1)
+  release:
+    track: stable

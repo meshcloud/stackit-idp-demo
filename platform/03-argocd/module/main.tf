@@ -212,3 +212,61 @@ resource "kubernetes_secret" "harbor_pull_secret" {
     })
   }
 }
+
+# ADR-004 STEP 2: Demo application namespace (pre-provisioned, not auto-created by ArgoCD)
+# Platform controls namespace provisioning (STEP 3 will generalize this)
+resource "kubernetes_namespace" "app_likvid_hello_api_dev" {
+  metadata {
+    name = "app-likvid-hello-api-dev"
+    labels = {
+      "workspace-id" = "likvid"
+      "project-id"   = "hello-api"
+      "tenant-id"    = "dev"
+    }
+  }
+}
+
+# ADR-004 STEP 2: ArgoCD Application CR for demo tenant GitOps reconciliation
+# This Application watches the concrete demo path in the GitOps state repository
+# and deploys using the platform-owned Helm chart into the pre-provisioned namespace.
+resource "kubernetes_manifest" "app_hello_api_dev" {
+  manifest = {
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "Application"
+    metadata = {
+      name      = "app-hello-api-dev"
+      namespace = kubernetes_namespace.argocd.metadata[0].name
+    }
+    spec = {
+      project = "default"
+
+      source = {
+        repoURL        = var.gitops_state_repo_url
+        targetRevision = "HEAD"
+        path           = "workspaces/likvid/projects/hello-api/tenants/dev"
+
+        # Use platform-owned Helm chart as deployment template
+        # Consumes only app-env.yaml and release.yaml from this directory
+        helm = {
+          releaseName = "hello-api-dev"
+          valueFiles = ["app-env.yaml", "release.yaml"]
+        }
+      }
+
+      destination = {
+        server    = "https://kubernetes.default.svc"
+        namespace = kubernetes_namespace.app_likvid_hello_api_dev.metadata[0].name
+      }
+
+      syncPolicy = {
+        automated = {
+          prune   = true
+          selfHeal = true
+        }
+      }
+    }
+  }
+
+  depends_on = [helm_release.argocd, kubernetes_namespace.app_likvid_hello_api_dev]
+}
+

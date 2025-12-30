@@ -1,0 +1,21 @@
+apiVersion: v2
+name: app-deployment
+description: Platform-owned Helm chart for deploying applications via GitOps
+type: application
+version: 0.1.0
+appVersion: "1.0"
+
+keywords:
+  - argocd
+  - gitops
+  - idp
+
+maintainers:
+  - name: Platform Team
+    email: platform@stackit.cloud
+
+annotations:
+  description: |
+    This chart is PLATFORM-OWNED and controls how app-env.yaml + release.yaml
+    are rendered into Kubernetes workloads. Application teams do NOT provide
+    Kubernetes manifests; they only provide app-env.yaml configuration.

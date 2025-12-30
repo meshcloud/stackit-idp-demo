@@ -43,3 +43,8 @@ variable "harbor_robot_token" {
   description = "Harbor robot account token"
   sensitive   = true
 }
+
+variable "gitops_state_repo_url" {
+  type        = string
+  description = "GitOps state repository URL (Git SSH or HTTPS)"
+}

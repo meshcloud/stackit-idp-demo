@@ -59,98 +59,130 @@ fi
 git config user.email "terraform@stackit.cloud"
 git config user.name "Terraform Automation"
 
-# Create directory structure
-mkdir -p tenants/demo/ai-demo
+# Create stable ID directory structure per ADR-004
+# Format: workspaces/<workspace-id>/projects/<project-id>/tenants/<tenant-id>/
+mkdir -p workspaces/likvid/projects/hello-api/tenants/dev
 
 # Create README.md if it doesn't exist
 if [ ! -f README.md ] || [ ! -s README.md ]; then
   cat > README.md << 'EOF'
 # STACKIT IDP GitOps State Repository
 
-This repository contains Kubernetes manifests managed by ArgoCD for the STACKIT Internal Developer Platform.
+This repository contains application environment configuration and release state
+managed by ArgoCD for the STACKIT Internal Developer Platform.
 
 ## Structure
 
-- `tenants/` - Per-tenant application manifests
-- `tenants/demo/` - Demo tenant
-- `tenants/demo/ai-demo/` - Demo AI application
+Uses stable identifiers (meshStack IDs) for all directory paths:
+
+```
+workspaces/<workspace-id>/
+  projects/<project-id>/
+    tenants/<tenant-id>/
+      app-env.yaml    # Environment configuration (app-team influence)
+      release.yaml    # Release state (Release Controller updates this)
+```
+
+Example: `workspaces/likvid/projects/hello-api/tenants/dev/`
+
+## Key Principles
+
+- **Stable IDs:** Paths use workspace/project/tenant IDs, not mutable display names
+- **Separation of concerns:** app-env.yaml vs release.yaml
+- **GitOps source of truth:** All deployment state lives in Git
+- **Platform-owned:** Application teams only push images; they don't modify this repo
 
 ## GitOps Workflow
 
-1. Push changes to this repository
-2. ArgoCD detects changes
-3. ArgoCD applies manifests to the cluster
+1. Platform operator creates app-env.yaml + release.yaml in stable ID directory
+2. ArgoCD watches this repository
+3. Application team pushes container image to registry
+4. Release Controller (future) updates release.yaml with new image
+5. ArgoCD detects Git change → deploys via platform-owned Helm chart
 EOF
 fi
 
-# Create deployment manifest
-mkdir -p tenants/demo/ai-demo
-cat > tenants/demo/ai-demo/deployment.yaml << 'EOF'
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ai-demo
-  labels:
-    name: ai-demo
+# Create app-env.yaml (platform contract for hello-api dev environment)
+cat > workspaces/likvid/projects/hello-api/tenants/dev/app-env.yaml << 'EOF'
+apiVersion: idp.meshcloud.io/v1alpha1
+kind: AppEnvironment
 
----
-apiVersion: apps/v1
-kind: Deployment
 metadata:
-  name: ai-demo
-  namespace: ai-demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ai-demo
-  template:
-    metadata:
-      labels:
-        app: ai-demo
-    spec:
-      containers:
-      - name: ai-demo
-        image: registry.onstackit.cloud/platform-demo/ai-demo:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 8080
-          name: http
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
+  name: hello-api-dev
+  workspace: likvid
+  project: hello-api
+  tenant: dev
 
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ai-demo
-  namespace: ai-demo
 spec:
-  selector:
-    app: ai-demo
-  ports:
-  - port: 80
-    targetPort: 8080
-    protocol: TCP
-  type: ClusterIP
+  # Platform-controlled namespace boundary
+  target:
+    namespace: app-likvid-hello-api-dev
+    cluster: ske-main
+
+  # Registry mapping (Release Controller watches this repository)
+  registry:
+    provider: harbor
+    repository: registry.onstackit.cloud/platform-demo/hello-api
+    deployPolicy:
+      mode: auto
+
+  # Runtime configuration that app teams can influence
+  runtime:
+    service:
+      port: 8080
+      protocol: http
+
+    scaling:
+      replicas: 2
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+
+  # Ingress exposure (optional)
+  ingress:
+    enabled: true
+    host: hello-api-dev.example.com
+    path: /
+    tls:
+      enabled: false
+
+  # Environment variables for the application
+  config:
+    env:
+      - name: LOG_LEVEL
+        value: "info"
+      - name: ENVIRONMENT
+        value: "development"
+
+  # Release channel (informational in v1)
+  release:
+    track: stable
+EOF
+
+# Create release.yaml (deployment release state - currently manual, future: Release Controller)
+cat > workspaces/likvid/projects/hello-api/tenants/dev/release.yaml << 'EOF'
+apiVersion: idp.meshcloud.io/v1alpha1
+kind: AppRelease
+
+metadata:
+  workspace: likvid
+  project: hello-api
+  tenant: dev
+
+spec:
+  image:
+    repository: registry.onstackit.cloud/platform-demo/hello-api
+    tag: "v0.1.0"
+    digest: "sha256:a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+
+  # Metadata about the release
+  observedAt: "2025-12-30T10:00:00Z"
+  observedBy: "platform-operator"
 EOF
 
 # Check if there are changes
