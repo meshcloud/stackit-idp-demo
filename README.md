@@ -140,6 +140,17 @@ terragrunt run-all apply
 ```
 
 **Step 3: Get Cluster Access**
+
+Generate a fresh kubeconfig from IaC outputs (recommended):
+
+```bash
+./scripts/kubeconfig-ske-demo.sh
+export KUBECONFIG=~/.kube/generated/ske-demo.kubeconfig
+kubectl get nodes
+```
+
+or
+
 ```bash
 cd 01-ske
 terragrunt output -raw kubeconfig > ~/.kube/stackit-config

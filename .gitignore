@@ -14,7 +14,8 @@ terraform.tfstate.backup
 .env.*
 
 # Kubernetes
-kubeconfig*
+kubeconfig
+kubeconfig.*
 *.kubeconfig
 
 # Credentials and secrets
