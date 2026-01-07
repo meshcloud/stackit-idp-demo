@@ -10,10 +10,24 @@ variable "kubernetes_cluster_ca_certificate" {
   sensitive   = true
 }
 
+variable "kubernetes_client_certificate" {
+  type        = string
+  description = "Client certificate (base64 encoded) for Kubernetes auth"
+  sensitive   = true
+}
+
+variable "kubernetes_client_key" {
+  type        = string
+  description = "Client key (base64 encoded) for Kubernetes auth"
+  sensitive   = true
+}
+
+# make token optional and deprecated in favor of client_certificate + key authentication
 variable "kubernetes_token" {
   type        = string
   description = "Kubernetes authentication token (service account or user token)"
   sensitive   = true
+  default     = null
 }
 
 variable "argocd_namespace" {

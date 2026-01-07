@@ -23,7 +23,9 @@ inputs = {
   # This prevents storing sensitive tokens on disk during Terraform execution
   kubernetes_host                   = dependency.ske.outputs.kube_host
   kubernetes_cluster_ca_certificate = dependency.ske.outputs.cluster_ca_certificate
-  kubernetes_token                  = get_env("TF_VAR_kubernetes_token")
+  # kubernetes_token                  = get_env("TF_VAR_kubernetes_token")
+  kubernetes_client_certificate     = dependency.ske.outputs.client_certificate
+  kubernetes_client_key             = dependency.ske.outputs.client_key
   
   harbor_url            = get_env("TF_VAR_harbor_url")
   harbor_robot_username = get_env("TF_VAR_harbor_robot_username")
