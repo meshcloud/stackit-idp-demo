@@ -15,8 +15,7 @@ This building block is ideal for teams that:
 
 ## Usage Examples
 
-1. **Starting a new application**: Use this building block to create a repository from a template (e.g., `app-template-python`) with pre-configured Dockerfile, Kubernetes manifests, and CI/CD setup.
-2. **Setting up CI/CD**: The building block automatically configures webhooks to trigger builds in Argo Workflows whenever you push code.
+1. **Starting a new application**: Use this building block to create a repository from a template (e.g., `app-template-python`) with pre-configured Dockerfile and local build scripts.
 
 ## Resources Created
 

@@ -44,9 +44,6 @@ Each numbered directory under `platform/` represents a deployment layer with exp
    - Installs ArgoCD into the cluster for GitOps-driven deployments.
    - Sets up initial repository connections and app templates.
 
-5. **`04-argo-workflows/`** — Deploys Argo Workflows tooling.
-   - Installs Argo Workflows for workflow automation and CI/CD orchestration.
-
 ### Terragrunt Orchestration
 
 - Each layer is a Terragrunt module that includes the root configuration (`root.hcl`).
