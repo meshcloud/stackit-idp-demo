@@ -43,6 +43,14 @@ They only deliver container images to an approved registry location.
 
 **The platform is solely responsible for turning container images into running workloads, via GitOps.**
 
+### Release Trigger (for v1 / demo)
+
+For the initial platform blueprint (v1), **image releases are promoted via a controlled interface** (meshStack Building Block),
+not via direct Git writes by application teams and not via registry-driven automation.
+
+**The platform-owned "app-env-config" Building Block** is the only supported mechanism to update the desired release reference
+for an application environment in the GitOps State Repository.
+
 ---
 
 ## Architecture Overview
@@ -63,16 +71,15 @@ The platform provides these components:
    * Contains the desired state for all application environments (app-envs).
    * Is read by ArgoCD and written only by platform automation.
 
-4. **Release Controller (platform-owned, mandatory)**
+4. **app-env-config Building Block (platform-controlled, mandatory for v1)**
 
-   * Runs in-cluster as a platform component.
-   * Observes registry events for approved repositories.
-   * Updates `release.yaml` in the GitOps State Repository.
-   * Does not deploy directly to Kubernetes.
+   * Runs as a meshStack Building Block execution (Terraform runner).
+   * Updates GitOps state (at minimum `release.yaml`, optionally parts of `app-env.yaml`) for a given app environment.
+   * Does not deploy directly to Kubernetes; ArgoCD remains the only deployment engine.
 
 Optional components:
 
-* **Argo Workflows** may exist for platform-internal workflows only (see policy below), but is not part of the application delivery path.
+* **Argo Workflows** is not part of the application delivery path.
 
 ---
 
@@ -97,7 +104,7 @@ Each application environment is described in the GitOps State Repository by two 
 * Defines the desired container image reference to deploy
 
   * preferably immutable digest (optionally tag + digest)
-* This file is updated **only by the Release Controller**
+* This file is updated **only by platform automation** (v1: via the "app-env-config" Building Block)
 
 Application teams do not provide Kubernetes manifests. The platform provides the deployment template (e.g., Helm chart) that renders the workload using `app-env.yaml` + `release.yaml`.
 
@@ -123,18 +130,10 @@ Enforcement mechanisms:
 
 ---
 
-## Argo Workflows Policy (Platform-only)
+## Argo Workflows
 
-Argo Workflows is **not** an application feature in this platform.
-
-* If Argo Workflows is installed, it is available only in `platform-*` namespaces.
-* Application namespaces (`app-*`) must not have RBAC permissions to create or execute Workflow resources (`workflows.argoproj.io/*`).
-* This ensures application teams cannot bypass platform boundaries by running arbitrary workflows in the cluster.
-
-Implementation guidance (minimal invasive):
-
-* Do not uninstall Argo Workflows by default (to avoid breaking platform-internal uses).
-* Instead, strictly scope access through RBAC (and optionally admission control).
+Argo Workflows is **not required** for this architecture and is **out of scope** for the application delivery path.
+If present in earlier prototypes, it should be removed to reduce complexity and to keep ArgoCD focused on deployments only.
 
 ---
 
@@ -202,7 +201,7 @@ They do NOT:
 
 Their single standard interaction point is:
 
-> **Push an image to their assigned registry repository/path.**
+> **Push an image to their assigned registry repository/path and (when they want to deploy) update the release reference via the "app-env-config" Building Block.**
 
 ---
 
@@ -214,9 +213,9 @@ They own:
 * registry structure and access control
 * GitOps State Repository structure and auditing
 * ArgoCD configuration and reconciliation behavior
-* Release Controller behavior and deployment gating rules
+* "app-env-config" Building Block behavior and deployment gating rules (if any)
 * pass-through app configuration scheme for app teams in `app-env.yaml` (e.g. number of nodes, port etc.)
-* platform-only workflow capabilities (if any)
+* (optional) future automation for "deploy on push" (not part of v1)
 
 ---
 
@@ -224,16 +223,16 @@ They own:
 
 ### Positive
 
-* Excellent DX: build is transparent (local/CI), deployments happen automatically via platform
+* Excellent DX: build is transparent (local/CI), deployments are controlled via a clear self-service action (app-env-config)
 * Strong enterprise isolation: registry permissions + namespace policies prevent cross-team interference
 * GitOps integrity: Git remains auditable and rollback-capable
 * ArgoCD is simplified: deploy-only, no build complexity
-* Modular platform: Release Controller can be delivered as an optional meshStack Building Block, but is mandatory for the default opinionated platform
+* Modular platform: app-env-config can be delivered as a meshStack Building Block; the same GitOps contract can be used without meshStack by providing an alternative controlled updater
 
 ### Trade-offs
 
-* Platform must implement and operate the Release Controller
-* Release Controller becomes a critical component for automatic deployments
+* Platform must implement and operate the controlled updater (v1: app-env-config Building Block)
+* "Deploy on push" is not automatic in v1 unless an additional automation component is introduced later
 * Requires explicit mapping between registry repository/path and app environments (stored in `app-env.yaml`)
 
 ---
@@ -242,7 +241,7 @@ They own:
 
 This ADR does NOT define:
 
-* the detailed implementation of the Release Controller (language/framework, webhook vs polling specifics)
+* the detailed implementation of future "deploy on push" automation (webhook vs polling etc.)
 * how production promotion is implemented (tags vs digests vs signatures)
 * advanced compliance gates (image signing, scanning policies)
 * the full schema of `app-env.yaml` (to be defined in a follow-up spec/ADR)
@@ -254,8 +253,8 @@ These items will be handled in follow-up ADRs and implementation docs.
 ## Notes / Next Steps
 
 * Define the initial minimal schema for `app-env.yaml` and `release.yaml` (DX-critical).
-* Implement the Release Controller as a platform component in a `platform-*` namespace.
-* Update platform RBAC/policies to ensure `app-*` namespaces cannot use Argo Workflows resources.
+* Implement the "app-env-config" Building Block that updates `release.yaml` (and optionally safe parts of `app-env.yaml`) in the GitOps State Repository.
+* Keep ArgoCD deployment templates minimal and restrict the app-team surface to the contract fields only.
 
 ---
 
