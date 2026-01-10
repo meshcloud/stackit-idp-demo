@@ -36,46 +36,54 @@ workspaces/likvid/
 
 ## File Responsibilities
 
-### `app-env.yaml` - Platform Contract (read by ArgoCD + Release Controller)
+### `app-env.yaml` - Environment Configuration (Helm Values)
 
+**Format:** Helm chart values file (YAML, no apiVersion/kind/metadata)  
 **Who writes it?** Platform operator or meshStack Building Block automation  
-**Who reads it?** ArgoCD (via Helm values) + Release Controller (to find environments)  
+**Who reads it?** ArgoCD (merges with release.yaml as Helm values)  
 **What does it control?**
-- Target namespace (must start with `app-`)
-- Registry repository mapping (Release Controller uses this)
-- Runtime parameters: replicas, resources, port, ingress
-- Environment variables and building block references
+- Deployment shape: replicas, resources, port
+- Ingress exposure: hostname, path, TLS
+- Environment variables (from config.env list)
 
 **Lifecycle:** Created once per environment, updated when app team wants to change runtime config
 
-**NOT written by:** Release Controller (Release Controller only updates release.yaml)
+**NOT written by:** Release Controller or app-env-config Building Block
 
-### `release.yaml` - Deployment Release State (machine-written)
+### `release.yaml` - Release State (Helm Values)
 
-**Who writes it?** Platform operator OR Release Controller (future automation)  
-**Who reads it?** ArgoCD deployment template (Helm chart)  
+**Format:** Helm chart values file (YAML, no apiVersion/kind/metadata)  
+**Who writes it?** Platform operator (manually) OR app-env-config Building Block (automated)  
+**Who reads it?** ArgoCD (merges with app-env.yaml as Helm values)  
 **What does it control?**
-- Container image reference (repository + tag + digest)
+- Container image reference: repository, tag, digest
 - Metadata: when observed, by whom, promotion history
 
 **Lifecycle:** Updated whenever a new image is released to the registry
 
 **NOT written by:** Application teams (only registry push)
 
+> app-env.yaml and release.yaml are plain Helm values files.
+> They are merged by ArgoCD and rendered by the platform Helm chart.
+> They are not Kubernetes resources.
+
 ## ArgoCD Reconciliation Flow
 
-1. **ArgoCD Application CR** watches this Git repository
-2. **ArgoCD** discovers all `app-env.yaml` files recursively
-3. For each `app-env.yaml`:
-   - Extract `spec.target.namespace` (e.g., `app-likvid-hello-api-dev`)
-   - Read paired `release.yaml` in same directory
-   - **Merge** app-env.yaml + release.yaml into deployment template values
-   - **Render** platform-owned Helm chart using merged values
-   - **Deploy** resulting Kubernetes objects into target namespace
+1. **ArgoCD Application CR** watches this Git repository (main branch)
+2. **ArgoCD** discovers `app-env.yaml` and `release.yaml` files in the paths specified by Application CR
+3. For each environment:
+   - Read `app-env.yaml` (deployment config: replicas, port, resources, ingress, env vars)
+   - Read `release.yaml` (image reference: repository, tag, digest)
+   - **Merge** both files as Helm chart values
+   - **Render** platform-owned Helm chart (`app-deployment`) using merged values
+   - **Deploy** resulting Kubernetes objects (Deployment, Service, Ingress) into target namespace
 
-4. **Application teams** push container images to registry
-5. **Release Controller** (future) detects image → updates `release.yaml`
-6. **Git change** triggers ArgoCD → automatic deployment
+4. **Application teams** build and push container images to Harbor registry
+5. **app-env-config Building Block** is triggered by developer (or future automation)
+   - Updates `release.yaml` with new image reference
+   - Commits to Git
+6. **Git change** is detected by ArgoCD
+7. **ArgoCD redeploys** with new image automatically (continuous reconciliation)
 
 ## Stable ID Examples
 

@@ -23,9 +23,12 @@ stackit-idp-demo/
 │   ├── 01-ske/                        # SKE Kubernetes cluster
 │   ├── 02-meshstack/                  # meshStack platform integration
 │   ├── 03-argocd/                     # ArgoCD GitOps controller
+│   ├── deployment-templates/          # Platform-owned deployment Helm charts
+│   ├── gitops-state/                  # Example GitOps state repo structure
 │   └── building-blocks/
 │       ├── stackit-git-repo/          # Git repository provisioning
-│       └── namespace-with-argocd/     # Namespace + ArgoCD app provisioning
+│       ├── namespace-with-argocd/     # Namespace + ArgoCD app provisioning
+│       └── app-env-config/            # Release management (update release.yaml)
 ├── app-template-python/               # Template for application teams
 │   ├── app/                           # Python FastAPI application
 │   ├── manifests/                     # Kubernetes manifests (Kustomize)
@@ -56,7 +59,7 @@ graph LR
 
 ## meshStack Building Blocks
 
-This platform provides two building blocks that run in **meshcloud-demo**:
+This platform provides three building blocks that run in **meshcloud-demo**:
 
 ### 1. `stackit-git-repo` - Git Repository Provisioning
 
@@ -98,6 +101,33 @@ Creates a Kubernetes namespace with ArgoCD application for GitOps deployments.
 - Harbor pull secret
 - ArgoCD Application (GitOps)
 - Optional: External LoadBalancer service
+
+### 3. `app-env-config` - Release Management (Update release.yaml)
+
+Updates the GitOps state repository with a new container image reference for deployment.
+
+**Inputs:**
+- `workspace_id`, `project_id`, `tenant_id`: meshStack context (automatic)
+- `image_repository`: Harbor image path (e.g., `harbor.example.tld/team/app/dev`)
+- `image_tag` **or** `image_digest`: Image version to deploy (digest preferred for immutability)
+- `gitea_username` / `gitea_token`: Git credentials (secret, provided by platform)
+
+**Outputs:**
+- Path to committed `release.yaml` file
+- Image reference that was deployed
+- Deployment flow summary
+
+**What it does:**
+- Idempotent Git commit to the GitOps state repository
+- Renders `release.yaml` per [ADR-004](docs/adr/ADR-004_decouple-container-builds-from-argocd.md)
+- Triggers ArgoCD to redeploy with new image
+- Full audit trail in Git
+
+**Workflow:**
+1. Developer builds image: `docker push harbor.example.tld/team/app/dev:v1.2.3`
+2. Developer runs `app-env-config` Building Block with image reference
+3. Building Block commits `release.yaml` to Git
+4. ArgoCD detects change and deploys automatically
 
 ## Quick Start
 
@@ -198,6 +228,7 @@ All Terraform state stored in STACKIT S3:
 For application teams using the building blocks:
 - [Git Repository Building Block](platform/building-blocks/stackit-git-repo/APP_TEAM_README.md)
 - [Namespace Building Block](platform/building-blocks/namespace-with-argocd/APP_TEAM_README.md)
+- [Release Management Building Block](platform/building-blocks/app-env-config/APP_TEAM_README.md)
 
 ## Support
 

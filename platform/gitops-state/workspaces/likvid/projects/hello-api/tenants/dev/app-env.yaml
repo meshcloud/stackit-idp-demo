@@ -1,58 +1,41 @@
-apiVersion: idp.meshcloud.io/v1alpha1
-kind: AppEnvironment
+# GitOps State: app-env.yaml
+# This file defines the runtime configuration for the application environment.
+# It is merged with release.yaml by ArgoCD and used as values for the platform Helm chart.
+#
+# This file is PLATFORM-OWNED (not application-team written).
+# It specifies the deployment shape: replicas, resources, ingress, environment variables.
+# It does NOT contain the container image reference (that's in release.yaml).
 
-metadata:
-  name: hello-api-dev
+deployment:
+  name: app
+  replicas: 2
+
+service:
+  port: 8080
+  protocol: http
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+ingress:
+  enabled: true
+  host: hello-api-dev.example.com
+  path: /
+  tls:
+    enabled: false
+
+env:
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "development"
+
+# Metadata for reference (informational only)
+_metadata:
   workspace: likvid
   project: hello-api
   tenant: dev
-
-spec:
-  # Platform-controlled namespace boundary
-  target:
-    namespace: app-likvid-hello-api-dev
-    cluster: ske-main
-
-  # Registry mapping (Release Controller watches this repository)
-  registry:
-    provider: harbor
-    repository: registry.onstackit.cloud/platform-demo/hello-api
-    deployPolicy:
-      mode: auto
-
-  # Runtime configuration that app teams can influence
-  runtime:
-    service:
-      port: 8080
-      protocol: http
-
-    scaling:
-      replicas: 2
-
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "128Mi"
-      limits:
-        cpu: "500m"
-        memory: "256Mi"
-
-  # Ingress exposure (optional)
-  ingress:
-    enabled: true
-    host: hello-api-dev.example.com
-    path: /
-    tls:
-      enabled: false
-
-  # Environment variables for the application
-  config:
-    env:
-      - name: LOG_LEVEL
-        value: "info"
-      - name: ENVIRONMENT
-        value: "development"
-
-  # Release channel (informational in v1)
-  release:
-    track: stable
+  description: "Hello API development environment"
