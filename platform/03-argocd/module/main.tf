@@ -15,6 +15,14 @@ terraform {
   }
 }
 
+# Shared GitOps path template (single source of truth)
+# Used by ArgoCD ApplicationSet and app-env-config Building Block
+locals {
+  # GitOps directory pattern: workspaces/<workspace-id>/projects/<project-id>/tenants/<tenant-id>/
+  # This ensures deterministic, stable paths independent of display names
+  gitops_path_template = "workspaces/{workspace_id}/projects/{project_id}/tenants/{tenant_id}"
+}
+
 # Use explicit cluster credentials instead of kubeconfig file
 # to avoid storing sensitive cluster tokens on disk
 provider "kubernetes" {
@@ -217,60 +225,83 @@ resource "kubernetes_secret" "harbor_pull_secret" {
   }
 }
 
-# ADR-004 STEP 2: Demo application namespace (pre-provisioned, not auto-created by ArgoCD)
-# Platform controls namespace provisioning (STEP 3 will generalize this)
-resource "kubernetes_namespace" "app_likvid_hello_api_dev" {
-  metadata {
-    name = "app-likvid-hello-api-dev"
-    labels = {
-      "workspace-id" = "likvid"
-      "project-id"   = "hello-api"
-      "tenant-id"    = "dev"
-    }
-  }
-}
-
-# ADR-004 STEP 2: ArgoCD Application CR for demo tenant GitOps reconciliation
-# This Application watches the concrete demo path in the GitOps state repository
-# and deploys using the platform-owned Helm chart into the pre-provisioned namespace.
-resource "kubernetes_manifest" "app_hello_api_dev" {
+# ADR-004 ApplicationSet for auto-discovery of all tenant environments
+# This ApplicationSet watches the GitOps state repository and automatically generates
+# one Application per directory matching: workspaces/*/projects/*/tenants/*
+#
+# Pattern matching:
+# - Each matching directory represents one application environment
+# - ArgoCD discovers and generates Applications dynamically (no hardcoding needed)
+# - Automatically creates/deletes Applications as directories are added/removed
+#
+# Note: Namespaces are pre-provisioned by the namespace-with-argocd Building Block.
+# This ApplicationSet assumes the target namespace already exists.
+resource "kubernetes_manifest" "applicationset_tenant_discovery" {
   manifest = {
     apiVersion = "argoproj.io/v1alpha1"
-    kind       = "Application"
+    kind       = "ApplicationSet"
     metadata = {
-      name      = "app-hello-api-dev"
+      name      = "tenant-environment-discovery"
       namespace = kubernetes_namespace.argocd.metadata[0].name
     }
     spec = {
-      project = "default"
-
-      source = {
-        repoURL        = var.gitops_state_repo_url
-        targetRevision = "HEAD"
-        path           = "workspaces/likvid/projects/hello-api/tenants/dev"
-
-        # Use platform-owned Helm chart as deployment template
-        # Consumes only app-env.yaml and release.yaml from this directory
-        helm = {
-          releaseName = "hello-api-dev"
-          valueFiles = ["app-env.yaml", "release.yaml"]
+      # Generator scans Git repository for matching paths
+      generators = [
+        {
+          git = {
+            repoURL    = var.gitops_state_repo_url
+            revision   = "HEAD"
+            directories = [
+              {
+                path = "workspaces/*/projects/*/tenants/*"
+              }
+            ]
+          }
         }
-      }
+      ]
 
-      destination = {
-        server    = "https://kubernetes.default.svc"
-        namespace = kubernetes_namespace.app_likvid_hello_api_dev.metadata[0].name
-      }
+      # Template rendered for each discovered directory
+      template = {
+        metadata = {
+          name = "app-{{ path.basename }}"
+        }
+        spec = {
+          project = "default"
 
-      syncPolicy = {
-        automated = {
-          prune   = true
-          selfHeal = true
+          source = {
+            repoURL        = var.gitops_state_repo_url
+            targetRevision = "HEAD"
+            # Reference the platform-owned Helm chart
+            path           = "charts/app-deployment"
+
+            # Deploy using platform-owned Helm chart with tenant-specific values
+            helm = {
+              releaseName = "{{ path.basename }}"
+              # Use relative path to tenant's values files from chart directory
+              valueFiles = [
+                "{{ printf \"../../%s/app-env.yaml\" .path.path }}",
+                "{{ printf \"../../%s/release.yaml\" .path.path }}"
+              ]
+            }
+          }
+
+          destination = {
+            server = "https://kubernetes.default.svc"
+            # Namespace derived from path: app-workspace-id-project-id-tenant-id
+            namespace = "app-{{ .path.segments.[0] }}-{{ .path.segments.[2] }}-{{ .path.segments.[4] }}"
+          }
+
+          syncPolicy = {
+            automated = {
+              prune   = true
+              selfHeal = true
+            }
+          }
         }
       }
     }
   }
 
-  depends_on = [helm_release.argocd, kubernetes_namespace.app_likvid_hello_api_dev]
+  depends_on = [helm_release.argocd]
 }
 

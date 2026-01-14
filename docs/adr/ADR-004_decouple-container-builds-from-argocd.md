@@ -258,7 +258,168 @@ These items will be handled in follow-up ADRs and implementation docs.
 
 ---
 
-## Appendix: GitOps Layout draft schemes (`app-env.yaml` and `release.yaml`)
+## Demo Happy Path (v1/Webinar Scenario)
+
+This section describes the end-to-end workflow for demonstrating the decoupled build and deployment architecture.
+
+### Prerequisites
+
+* SKE cluster is provisioned and kubeconfig is available
+* ArgoCD is installed with ApplicationSet support enabled
+* GitOps state repository exists with the following structure:
+  ```
+  workspaces/
+    <workspace-id>/
+      projects/
+        <project-id>/
+          tenants/
+            <tenant-id>/
+              app-env.yaml      # Platform-provided environment contract
+              release.yaml      # Release state (updated by app-env-config)
+  charts/
+    app-deployment/             # Platform-owned Helm chart
+      Chart.yaml
+      values.yaml
+      templates/
+        deployment.yaml
+        service.yaml
+  ```
+* Harbor registry is configured with image push permission for the demo workspace
+* app-env-config Building Block is available for running
+
+### Scenario: Deploy hello-api application in dev environment
+
+#### Step 1: Build Container Image (Local or CI)
+
+**Developer** builds the application image locally or in CI/CD:
+
+```bash
+# Build the image locally
+docker build -t hello-api:v1.0.0 .
+
+# Or use a container registry push to test locally:
+docker tag hello-api:v1.0.0 registry.onstackit.cloud/platform-demo/hello-api:v1.0.0
+docker push registry.onstackit.cloud/platform-demo/hello-api:v1.0.0
+```
+
+**Result:** Container image is available in the registry at the image repository path assigned to the environment.
+
+---
+
+#### Step 2: Update Release via app-env-config Building Block
+
+**Platform operator** (or self-service via meshStack) runs the app-env-config Building Block to update the desired release reference:
+
+```bash
+# Using Terraform / Terragrunt:
+terraform apply -var image_tag=v1.0.0 -var image_digest=sha256:abc123...
+```
+
+**What it does:**
+
+1. Clones the GitOps state repository
+2. Creates/updates the release.yaml file in `workspaces/<workspace>/projects/<project>/tenants/<tenant>/release.yaml`
+3. Commits the change with an auditable message
+4. Pushes to the main branch
+
+**release.yaml is now:**
+
+```yaml
+apiVersion: idp.meshcloud.io/v1alpha1
+kind: AppRelease
+
+metadata:
+  workspace: <workspace-id>
+  project: <project-id>
+  tenant: <tenant-id>
+
+spec:
+  image:
+    repository: registry.onstackit.cloud/platform-demo/hello-api
+    tag: "v1.0.0"
+    digest: "sha256:abc123..."
+  observedAt: "2025-01-14T10:00:00Z"
+  observedBy: "app-env-config-building-block"
+```
+
+**Result:** Git now reflects the desired release state.
+
+---
+
+#### Step 3: ArgoCD Reconciles and Deploys
+
+**ArgoCD** detects the Git change and automatically reconciles:
+
+1. **ApplicationSet Discovers:** The tenant-environment-discovery ApplicationSet scans the GitOps state repository for matching directories (`workspaces/*/projects/*/tenants/*`)
+2. **Application Generated:** An Application CR is dynamically created for `<workspace>/<project>/<tenant>`
+3. **Helm Rendered:** The platform-owned Helm chart (`charts/app-deployment/`) is rendered with values merged from:
+   * `charts/app-deployment/values.yaml` (defaults)
+   * `workspaces/<workspace>/projects/<project>/tenants/<tenant>/app-env.yaml` (environment config)
+   * `workspaces/<workspace>/projects/<project>/tenants/<tenant>/release.yaml` (release state)
+4. **Deployed:** Kubernetes manifests are applied to the target namespace:
+   ```
+   namespace: app-<workspace>-<project>-<tenant>
+   ```
+   Creating:
+   * Deployment with the specified image
+   * Service exposing the application port
+   * (Optional) Ingress if enabled in app-env.yaml
+
+**Result:** Application is now running in the cluster, managed entirely by ArgoCD.
+
+---
+
+#### Step 4: Verify Deployment
+
+Check deployment status via kubectl or ArgoCD UI:
+
+```bash
+# View the running deployment
+kubectl get deployments -n app-<workspace>-<project>-<tenant>
+
+# Check logs
+kubectl logs -n app-<workspace>-<project>-<tenant> -l app=<app-name>
+
+# Describe the deployment
+kubectl describe deployment -n app-<workspace>-<project>-<tenant>
+
+# Check ArgoCD Application status
+kubectl get applications -n argocd
+```
+
+---
+
+#### Step 5: Update and Redeploy (Day 2)
+
+**Developer** pushes a new image:
+
+```bash
+docker build -t hello-api:v1.0.1 .
+docker tag hello-api:v1.0.1 registry.onstackit.cloud/platform-demo/hello-api:v1.0.1
+docker push registry.onstackit.cloud/platform-demo/hello-api:v1.0.1
+```
+
+**Operator** updates release via app-env-config:
+
+```bash
+terraform apply -var image_tag=v1.0.1
+```
+
+**ArgoCD** automatically detects the Git change and redeploys.
+
+---
+
+### Key Observations
+
+1. **Decoupling:** Build happens completely outside the cluster (no Argo Workflows).
+2. **Git as source of truth:** All deployment state is version-controlled and auditable.
+3. **Clear responsibility:** Developers push images; platform controls deployments.
+4. **Scalability:** ApplicationSet automatically discovers new tenant environments without hardcoding Application CRs.
+5. **No platform drift:** App teams cannot modify production workloads; all changes flow through Git.
+
+---
+
+
 
 ### Stable Identifiers in GitOps State Paths
 

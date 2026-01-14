@@ -63,6 +63,124 @@ git config user.name "Terraform Automation"
 # Format: workspaces/<workspace-id>/projects/<project-id>/tenants/<tenant-id>/
 mkdir -p workspaces/likvid/projects/hello-api/tenants/dev
 
+# Create Helm chart directory for platform-owned deployment template
+# This chart is referenced by ArgoCD ApplicationSet and consumed by all tenant environments
+mkdir -p charts/app-deployment/templates
+
+# Create Chart.yaml for the Helm chart
+cat > charts/app-deployment/Chart.yaml << 'EOF'
+apiVersion: v2
+name: app-deployment
+description: Platform-owned Helm chart for container application deployments
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - deployment
+  - application
+  - platform
+maintainers:
+  - name: Platform Team
+    email: platform@stackit.cloud
+EOF
+
+# Create values.yaml with deployment defaults
+cat > charts/app-deployment/values.yaml << 'EOF'
+# Default values for app-deployment Helm chart
+# This is a YAML-formatted file declaring variables to be passed into your templates.
+
+deployment:
+  name: app
+  replicas: 1
+  
+  image:
+    repository: ""
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+service:
+  port: 8080
+  targetPort: 8000
+  protocol: TCP
+
+labels:
+  app.kubernetes.io/managed-by: argocd
+
+imagePullSecrets:
+  - name: harbor-pull-secret
+EOF
+
+# Create main deployment template
+cat > charts/app-deployment/templates/deployment.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.deployment.name }}
+    app.kubernetes.io/name: {{ .Values.deployment.name }}
+    app.kubernetes.io/managed-by: {{ .Values.labels."app.kubernetes.io/managed-by" }}
+spec:
+  replicas: {{ .Values.deployment.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.deployment.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.deployment.name }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: app
+        image: {{ if .Values.deployment.image.digest }}{{ .Values.deployment.image.repository }}@{{ .Values.deployment.image.digest }}{{ else }}{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}{{ end }}
+        imagePullPolicy: {{ .Values.deployment.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.targetPort }}
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: {{ .Values.deployment.resources.requests.cpu }}
+            memory: {{ .Values.deployment.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.deployment.resources.limits.cpu }}
+            memory: {{ .Values.deployment.resources.limits.memory }}
+EOF
+
+# Create service template
+cat > charts/app-deployment/templates/service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.deployment.name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: {{ .Values.service.targetPort }}
+    protocol: {{ .Values.service.protocol }}
+    name: http
+  selector:
+    app: {{ .Values.deployment.name }}
+EOF
+
 # Create README.md if it doesn't exist
 if [ ! -f README.md ] || [ ! -s README.md ]; then
   cat > README.md << 'EOF'
