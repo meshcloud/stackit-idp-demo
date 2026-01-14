@@ -45,4 +45,8 @@ inputs = {
   
   # ADR-004: Consume GitOps state repository URL from 05-gitops-state-repo
   gitops_state_repo_url = dependency.gitops_state_repo.outputs.repo_ssh_url
+
+  # Common path naming scheme defined in gitops-state-repo stack
+  gitops_tenant_path_template = dependency.gitops_state_repo.outputs.gitops_tenant_path_template
+
 }
