@@ -22,3 +22,8 @@ output "repo_full_path" {
   description = "Full path of the repository (organization/name)"
   value       = "${gitea_repository.state_repo.username}/${gitea_repository.state_repo.name}"
 }
+
+output "gitops_tenant_path_template" {
+  description = "GitOps tenant directory path template (single source of truth for ArgoCD ApplicationSet and app-env-config Building Block)"
+  value       = "workspaces/{workspace_id}/projects/{project_id}/tenants/{tenant_id}"
+}

@@ -62,3 +62,9 @@ variable "gitops_state_repo_url" {
   type        = string
   description = "GitOps state repository URL (Git SSH or HTTPS)"
 }
+
+variable "gitops_tenant_path_template" {
+  type        = string
+  description = "GitOps tenant directory path template for ApplicationSet discovery (single source of truth)"
+  default     = "workspaces/{workspace_id}/projects/{project_id}/tenants/{tenant_id}"
+}

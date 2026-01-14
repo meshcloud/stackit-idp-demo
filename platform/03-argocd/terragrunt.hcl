@@ -18,6 +18,18 @@ dependency "ske" {
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
 }
 
+# ADR-004: GitOps state repository must be provisioned before ArgoCD
+# ArgoCD ApplicationSet watches this repository for application environments
+dependency "gitops_state_repo" {
+  config_path = "../05-gitops-state-repo"
+  
+  mock_outputs = {
+    repo_ssh_url                   = "git@git-service.git.onstackit.cloud:platform/app-environments.git"
+    gitops_tenant_path_template    = "workspaces/{workspace_id}/projects/{project_id}/tenants/{tenant_id}"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+}
+
 inputs = {
   # Use explicit cluster credentials from SKE module instead of kubeconfig file
   # This prevents storing sensitive tokens on disk during Terraform execution
@@ -31,6 +43,6 @@ inputs = {
   harbor_robot_username = get_env("TF_VAR_harbor_robot_username")
   harbor_robot_token    = get_env("TF_VAR_harbor_robot_token")
   
-  # ADR-004 STEP 2: GitOps state repository for application environment definitions
-  gitops_state_repo_url = get_env("TF_VAR_gitops_state_repo_url", "https://git-service.git.onstackit.cloud/platform/app-environments.git")
+  # ADR-004: Consume GitOps state repository URL from 05-gitops-state-repo
+  gitops_state_repo_url = dependency.gitops_state_repo.outputs.repo_ssh_url
 }

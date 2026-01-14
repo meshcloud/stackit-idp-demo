@@ -15,14 +15,6 @@ terraform {
   }
 }
 
-# Shared GitOps path template (single source of truth)
-# Used by ArgoCD ApplicationSet and app-env-config Building Block
-locals {
-  # GitOps directory pattern: workspaces/<workspace-id>/projects/<project-id>/tenants/<tenant-id>/
-  # This ensures deterministic, stable paths independent of display names
-  gitops_path_template = "workspaces/{workspace_id}/projects/{project_id}/tenants/{tenant_id}"
-}
-
 # Use explicit cluster credentials instead of kubeconfig file
 # to avoid storing sensitive cluster tokens on disk
 provider "kubernetes" {
